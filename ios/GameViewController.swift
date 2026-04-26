@@ -209,8 +209,10 @@ class GameViewController: UIViewController, MTKViewDelegate {
     var particlePipeline:  MTLRenderPipelineState!
     var compositePipeline: MTLRenderPipelineState!
     var forwardPipeline:   MTLRenderPipelineState!
+    var bloomPipeline:     MTLRenderPipelineState!
     var simulateKernel:    MTLComputePipelineState!
     var depthStencilState: MTLDepthStencilState!
+    var linearClampSampler: MTLSamplerState!
 
     // Persistent GPU buffers
     var uniformBuf:   MTLBuffer!
@@ -424,10 +426,10 @@ class GameViewController: UIViewController, MTKViewDelegate {
             .copyMemory(from: emPtr, byteCount: Int(emitterCount) * kEmitterStride)
         self.emitterCount = emitterCount
 
-        // 4b. Clear bloomTex and emissiveTex to black — they are .private and
-        //     never written by the forward path, so GPU memory is undefined.
-        //     Two empty render passes (just clears) are the cheapest GPU clear.
-        for clearTex in [bloomTex, emissiveTex].compactMap({ $0 }) {
+        // 4b. Clear emissiveTex to black — it's .private and not written by
+        //     the forward path, so GPU memory is undefined. (bloomTex is fully
+        //     written by the bloom downsample pass below, so no clear needed.)
+        for clearTex in [emissiveTex].compactMap({ $0 }) {
             let d = MTLRenderPassDescriptor()
             d.colorAttachments[0].texture     = clearTex
             d.colorAttachments[0].loadAction  = .clear
@@ -533,7 +535,20 @@ class GameViewController: UIViewController, MTKViewDelegate {
             }
         }
 
-        // 8. Bloom downsample (compute or render pass — future work)
+        // 8. Bloom downsample pass: hdrTex → bloomTex
+        if let hdr = hdrTex, let bloom = bloomTex {
+            let bloomDesc = MTLRenderPassDescriptor()
+            bloomDesc.colorAttachments[0].texture     = bloom
+            bloomDesc.colorAttachments[0].loadAction  = .dontCare    // pass overwrites every pixel
+            bloomDesc.colorAttachments[0].storeAction = .store
+            if let enc = cmdBuf.makeRenderCommandEncoder(descriptor: bloomDesc) {
+                enc.setRenderPipelineState(bloomPipeline)
+                enc.setFragmentTexture(hdr, index: 0)
+                enc.setFragmentSamplerState(linearClampSampler, index: 0)
+                enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+                enc.endEncoding()
+            }
+        }
 
         // 9. Composite pass → drawable (no depth — post-process fullscreen triangle)
         // Build a fresh descriptor targeting only the drawable color texture.
@@ -859,6 +874,22 @@ class GameViewController: UIViewController, MTKViewDelegate {
             cd.fragmentFunction                = lib.makeFunction(name: "frag_composite")
             cd.colorAttachments[0].pixelFormat = mtkView.colorPixelFormat
             compositePipeline = try device.makeRenderPipelineState(descriptor: cd)
+
+            // ── Bloom downsample pipeline (fullscreen pass: hdrTex → bloomTex) ──
+            let bd = MTLRenderPipelineDescriptor()
+            bd.label                           = "BloomDownsample"
+            bd.vertexFunction                  = lib.makeFunction(name: "vert_fullscreen")
+            bd.fragmentFunction                = lib.makeFunction(name: "frag_bloom_downsample")
+            bd.colorAttachments[0].pixelFormat = .rgba16Float    // matches bloomTex format
+            bloomPipeline = try device.makeRenderPipelineState(descriptor: bd)
+
+            // ── Linear-clamp sampler (used by frag_bloom_downsample) ──────────
+            let sd = MTLSamplerDescriptor()
+            sd.minFilter    = .linear
+            sd.magFilter    = .linear
+            sd.sAddressMode = .clampToEdge
+            sd.tAddressMode = .clampToEdge
+            linearClampSampler = device.makeSamplerState(descriptor: sd)!
 
             // ── Compute: GPU particle simulation ──────────────────────────────
             guard let simFn = lib.makeFunction(name: "simulate_particles") else {
