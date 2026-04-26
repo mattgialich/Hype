@@ -145,6 +145,61 @@ fragment float4 frag_world_forward(
 
     // Hero mage coloring: mesh_id packed into upper 16 bits of fx_flags
     uint mesh_frag = in.fx_flags >> 16;
+
+    // ── Forest floor (mesh_id 0 — only the ground draw call uses this) ────────
+    // Patch-based procedural ground: moss / dirt / fallen leaves with dappled
+    // sunlight, root cracks, and rare dew sparkles. Early-return its own
+    // lighting so the moss-bias / specular / rim passes don't muddy it.
+    if (mesh_frag == 0u) {
+        float2 wxz = in.world_pos.xz;
+
+        // Layer A: large-scale biome patches (which floor type at this spot)
+        float patch = valueNoise3(float3(wxz.x * 0.05, 0.0, wxz.y * 0.05));
+        // Layer B: medium-scale variation (within-biome bias)
+        float bias  = valueNoise3(float3(wxz.x * 0.18, 1.0, wxz.y * 0.18));
+        // Layer C: fine multi-octave grass detail
+        float grass = fbm3(float3(wxz.x * 1.5, 0.0, wxz.y * 1.5));
+
+        // Floor palette: dark moss / bright moss / damp earth / fallen leaves
+        float3 mossDark  = float3(0.04, 0.16, 0.05);
+        float3 mossLight = float3(0.10, 0.30, 0.08);
+        float3 earthDark = float3(0.12, 0.08, 0.04);
+        float3 leaves    = float3(0.42, 0.22, 0.06);   // warm rust
+
+        // Continuously blend palette using patch as the primary driver
+        float3 col = mix(mossDark, mossLight, bias);
+        col = mix(col, earthDark, smoothstep(0.45, 0.65, patch));
+        col = mix(col, leaves,    smoothstep(0.72, 0.92, patch) * bias);
+
+        // Apply grass detail — darken valleys, brighten bumps
+        col *= 0.85 + 0.30 * grass;
+
+        // Root cracks: dark valleys at zero-crossings of mid-freq noise
+        float crackN = abs(valueNoise3(float3(wxz.x * 0.6, 2.0, wxz.y * 0.6)) - 0.5);
+        float crack  = 1.0 - smoothstep(0.0, 0.05, crackN);
+        col *= 1.0 - crack * 0.45;
+
+        // Dappled sunlight through canopy — slowly drifts with time
+        float dapple = valueNoise3(float3(wxz.x * 0.3 + frame.time * 0.05, 5.0, wxz.y * 0.3));
+        dapple = smoothstep(0.55, 0.78, dapple);
+        col += float3(0.55, 0.45, 0.28) * dapple * 0.20;
+
+        // Rare dew sparkles (very few, very bright — feeds bloom)
+        float sparkleHash = hash21(floor(wxz * 60.0));
+        float sparkleMask = smoothstep(0.992, 0.998, sparkleHash);
+        float3 sparkle    = float3(0.6, 0.7, 0.9) * sparkleMask;
+
+        // Forest lighting (matches what other meshes use at the bottom of the function)
+        float3 L = normalize(float3(0.4, 1.0, 0.25));
+        float3 N = normalize(in.normal);
+        float  diff = max(dot(N, L), 0.0);
+        float  back = max(dot(N, -L), 0.0);
+        float3 ambient = col * float3(0.10, 0.22, 0.11);
+        float3 diffuse = col * float3(1.5, 1.35, 0.90) * diff;
+        float3 rimback = col * float3(0.02, 0.18, 0.06) * back;
+        return float4(ambient + diffuse + rimback + sparkle, 1.0);
+    }
+
     if (mesh_frag == 1u) {
         if (in.uv.x < 1.0) {
             albedo = float3(0.92, 0.74, 0.56);              // skin: head + neck
