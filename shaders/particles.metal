@@ -70,6 +70,11 @@ kernel void simulate_particles(
 
         p.pos         = em.pos;
         p.vel         = mix(float3(em.vel_min), float3(em.vel_max), float3(r0, r1, r2));
+        // Spawn jitter — scale with emitter lifetime so combat FX (short-lived) stays
+        // pointlike, but ambient emitters (forest_motes, fireflies, embers ≥ 2.5s) disperse
+        // particles across an area instead of all spawning from a single point.
+        float jitterScale = saturate((em.lifetime - 1.5) / 3.0);
+        p.pos += float3(r0 - 0.5, (r1 - 0.5) * 0.4, r2 - 0.5) * jitterScale * 3.5;
         p.age         = 0.0;
         p.lifetime    = em.lifetime;
         p.color       = em.color_start;

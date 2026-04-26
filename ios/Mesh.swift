@@ -325,17 +325,54 @@ func makeGargoyle(device: MTLDevice) -> (vtx: MTLBuffer, idx: MTLBuffer, count: 
     addSphere(0, 0.46, 0, 0.20, slices: 8, rings: 6, uBase: 0)          // torso
     addCylinder(0, 0.63, -0.02,  0, 0.70, -0.03,  r0: 0.090, r1: 0.090, sides: 5, uBase: 0) // neck
     addSphere(0, 0.76, -0.04, 0.14, slices: 8, rings: 6, uBase: 0)      // head
-    // Horns
-    addCylinder(-0.07, 0.86, -0.04,  -0.11, 1.00, -0.06,  r0: 0.022, r1: 0.005, sides: 4, uBase: 0)
-    addCylinder( 0.07, 0.86, -0.04,   0.11, 1.00, -0.06,  r0: 0.022, r1: 0.005, sides: 4, uBase: 0)
+
+    // Curved horns: two-segment, each bigger and arching back
+    addCylinder(-0.07, 0.86, -0.04,  -0.13, 1.04, -0.10,  r0: 0.030, r1: 0.012, sides: 5, uBase: 0)
+    addCylinder(-0.13, 1.04, -0.10,  -0.16, 1.16,  0.00,  r0: 0.012, r1: 0.004, sides: 4, uBase: 0)
+    addCylinder( 0.07, 0.86, -0.04,   0.13, 1.04, -0.10,  r0: 0.030, r1: 0.012, sides: 5, uBase: 0)
+    addCylinder( 0.13, 1.04, -0.10,   0.16, 1.16,  0.00,  r0: 0.012, r1: 0.004, sides: 4, uBase: 0)
+
+    // Pointed bat-style ears
+    addCylinder(-0.13, 0.78, -0.05, -0.18, 0.86, -0.06, r0: 0.024, r1: 0.004, sides: 3, uBase: 0)
+    addCylinder( 0.13, 0.78, -0.05,  0.18, 0.86, -0.06, r0: 0.024, r1: 0.004, sides: 3, uBase: 0)
+
+    // Brow ridge — single thin bar above the eyes
+    addCylinder(-0.10, 0.83, -0.13,  0.10, 0.83, -0.13,  r0: 0.020, r1: 0.020, sides: 4, uBase: 0)
+
+    // Glowing eye gems (uBase=8 — emissive crimson in shader)
+    addSphere(-0.05, 0.78, -0.16, 0.022, slices: 4, rings: 3, uBase: 8)
+    addSphere( 0.05, 0.78, -0.16, 0.022, slices: 4, rings: 3, uBase: 8)
+
+    // Fangs — two small downward cones from mouth area
+    addCylinder(-0.03, 0.74, -0.16, -0.03, 0.69, -0.16, r0: 0.013, r1: 0.000, sides: 3, uBase: 0)
+    addCylinder( 0.03, 0.74, -0.16,  0.03, 0.69, -0.16, r0: 0.013, r1: 0.000, sides: 3, uBase: 0)
+
     // Arms (hanging forward-down, clawed)
     addCylinder(-0.20, 0.50, -0.05,  -0.28, 0.28, 0.06,  r0: 0.068, r1: 0.042, sides: 5, uBase: 0)
     addCylinder( 0.20, 0.50, -0.05,   0.28, 0.28, 0.06,  r0: 0.068, r1: 0.042, sides: 5, uBase: 0)
+    // Claw tips at end of each arm — three small claws splayed outward
+    for sx in [Float(-1), Float(1)] {
+        let baseX: Float = sx * 0.28, baseY: Float = 0.28, baseZ: Float = 0.06
+        for j in 0 ..< 3 {
+            let off = Float(j - 1) * 0.022
+            addCylinder(baseX + off, baseY, baseZ,
+                        baseX + off + sx * 0.04, baseY - 0.06, baseZ + 0.06,
+                        r0: 0.012, r1: 0.000, sides: 3, uBase: 0)
+        }
+    }
+
     // Legs (short, tucked under body)
     addCylinder(-0.10, 0.28, 0,  -0.11, 0.02, 0.06,  r0: 0.065, r1: 0.048, sides: 5, uBase: 0)
     addCylinder( 0.10, 0.28, 0,   0.11, 0.02, 0.06,  r0: 0.065, r1: 0.048, sides: 5, uBase: 0)
+
     // Tail
     addCylinder(0, 0.36, 0.10,  0, 0.14, 0.32,  r0: 0.046, r1: 0.016, sides: 4, uBase: 0)
+
+    // Spine ridges — small spheres along the back, suggesting a stone backbone
+    addSphere(0, 0.62, 0.10, 0.024, slices: 4, rings: 3, uBase: 0)
+    addSphere(0, 0.55, 0.13, 0.022, slices: 4, rings: 3, uBase: 0)
+    addSphere(0, 0.48, 0.16, 0.020, slices: 4, rings: 3, uBase: 0)
+    addSphere(0, 0.41, 0.19, 0.018, slices: 4, rings: 3, uBase: 0)
 
     // ── Bat wings (uBase=30, animated in vert_world) ──────────────────────────
     // Right wing fan: root → 4 tip vertices.  uv.x=30, uv.y encodes wing extension.
@@ -527,10 +564,36 @@ func makeHero(device: MTLDevice) -> (vtx: MTLBuffer, idx: MTLBuffer, count: Int)
     addCylinder(-0.32, 1.28, 0,  -0.35, 0.90, 0,  r0: 0.058, r1: 0.044, sides: 6, uBase: 23)
     addSphere(-0.36, 0.86, 0, 0.054, slices: 6, rings: 4, uBase: 23)
 
-    // ── Staff in right hand (uBase=24 shaft, uBase=25 orb) ───────────────────
-    // Pivots around shoulder with no clamp — both ends tilt as a rigid rod
-    addCylinder(0.40, 0.08, 0,  0.40, 2.20, 0,  r0: 0.024, r1: 0.019, sides: 7, uBase: 24)
-    addSphere(0.40, 2.28, 0, 0.080, slices: 8, rings: 6, uBase: 25)
+    // ── Staff in right hand (uBase=24 shaft, 25 orb) ─────────────────────────
+    // Pivots around shoulder with no clamp — both ends tilt as a rigid rod.
+    // All staff parts use uBase ≥ 24 so the walk animation in vert_world swings them together.
+    let staffX: Float = 0.40
+    // Tapered shaft, slightly taller than before
+    addCylinder(staffX, 0.05, 0,  staffX, 2.05, 0,  r0: 0.028, r1: 0.022, sides: 8, uBase: 24)
+    // Lower grip wrap (thicker band, suggests bound leather)
+    addCylinder(staffX, 0.85, 0,  staffX, 1.05, 0,  r0: 0.040, r1: 0.040, sides: 8, uBase: 24)
+    // Upper grip wrap
+    addCylinder(staffX, 1.15, 0,  staffX, 1.32, 0,  r0: 0.040, r1: 0.040, sides: 8, uBase: 24)
+    // Decorative metal collar just below the head
+    addCylinder(staffX, 2.02, 0,  staffX, 2.12, 0,  r0: 0.054, r1: 0.046, sides: 10, uBase: 24)
+    // Pointed butt-spike below the lower wrap
+    addCylinder(staffX, 0.00, 0,  staffX, 0.05, 0,  r0: 0.000, r1: 0.028, sides: 6, uBase: 24)
+    // Four crystal claws cradling the orb — splayed outward, curving up around the gem
+    let orbY: Float = 2.32
+    let orbR: Float = 0.105
+    for i in 0 ..< 4 {
+        let angle = Float.pi * 0.5 * Float(i) + Float.pi * 0.25
+        let cx = cos(angle), sz = sin(angle)
+        // base just above the metal collar
+        let bx = staffX + cx * 0.045, bz = sz * 0.045
+        // tip wraps just over the equator of the orb
+        let tx = staffX + cx * 0.075, tz = sz * 0.075
+        // uBase=25 → claws share the orb's emissive crystal shader treatment
+        addCylinder(bx, 2.14, bz,  tx, orbY + 0.04, tz,
+                    r0: 0.022, r1: 0.010, sides: 4, uBase: 25)
+    }
+    // The magic orb itself (uBase=25, animated emissive in shader)
+    addSphere(staffX, orbY, 0, orbR, slices: 10, rings: 8, uBase: 25)
 
     let vBuf = device.makeBuffer(bytes: verts, length: verts.count * MemoryLayout<WorldVertex>.size, options: .storageModeShared)!
     let iBuf = device.makeBuffer(bytes: idxs,  length: idxs.count  * MemoryLayout<UInt16>.size,      options: .storageModeShared)!
