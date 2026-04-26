@@ -856,3 +856,121 @@ func makeTorch(device: MTLDevice) -> (vtx: MTLBuffer, idx: MTLBuffer, count: Int
     let iBuf = device.makeBuffer(bytes: idxs,  length: idxs.count  * MemoryLayout<UInt16>.size,      options: .storageModeShared)!
     return (vBuf, iBuf, idxs.count)
 }
+
+/// Zone-transition portal (mesh_id 13): two stone pillars + arched top + vertical
+/// emissive swirl disc between them. Stone parts use uBase=0; the swirl disc uses
+/// uBase=60 (≥60 marker → emissive swirl shader branch).
+func makePortal(device: MTLDevice) -> (vtx: MTLBuffer, idx: MTLBuffer, count: Int) {
+    var verts: [WorldVertex] = []
+    var idxs:  [UInt16]      = []
+
+    func addCylinder(_ p0x: Float, _ p0y: Float, _ p0z: Float,
+                     _ p1x: Float, _ p1y: Float, _ p1z: Float,
+                     r0: Float, r1: Float, sides: Int, uBase: Float) {
+        let dx = p1x-p0x, dy = p1y-p0y, dz = p1z-p0z
+        let len = (dx*dx + dy*dy + dz*dz).squareRoot() + 1e-6
+        let ax = dx/len, ay = dy/len, az = dz/len
+        var rx: Float, ry: Float, rz: Float
+        if abs(ay) < 0.9 {
+            let cl = (az*az + ax*ax).squareRoot() + 1e-6
+            rx = az/cl; ry = 0; rz = -ax/cl
+        } else {
+            let cl = (az*az + ay*ay).squareRoot() + 1e-6
+            rx = 0; ry = -az/cl; rz = ay/cl
+        }
+        let ux = ay*rz - az*ry, uy = az*rx - ax*rz, uz = ax*ry - ay*rx
+        let base = UInt16(verts.count)
+        for i in 0...sides {
+            let t = 2.0 * Float.pi * Float(i) / Float(sides)
+            let c = cos(t), s = sin(t)
+            let nx = c*rx + s*ux, ny = c*ry + s*uy, nz = c*rz + s*uz
+            let nl = (nx*nx + ny*ny + nz*nz).squareRoot() + 1e-6
+            let uEnc = uBase + Float(i)/Float(sides) * 0.9
+            verts.append(WorldVertex(px: p0x+c*rx*r0+s*ux*r0, py: p0y+c*ry*r0+s*uy*r0, pz: p0z+c*rz*r0+s*uz*r0, nx: nx/nl, ny: ny/nl, nz: nz/nl, u: uEnc, v: 1))
+            verts.append(WorldVertex(px: p1x+c*rx*r1+s*ux*r1, py: p1y+c*ry*r1+s*uy*r1, pz: p1z+c*rz*r1+s*uz*r1, nx: nx/nl, ny: ny/nl, nz: nz/nl, u: uEnc, v: 0))
+        }
+        for i in 0..<UInt16(sides) {
+            let a = base + i*2
+            idxs.append(contentsOf: [a, a+2, a+1,  a+1, a+2, a+3])
+        }
+    }
+
+    // ── Two side pillars ──
+    let pillarH: Float = 3.5
+    let pillarX: Float = 1.2
+    addCylinder(-pillarX, 0, 0,  -pillarX, pillarH, 0,  r0: 0.24, r1: 0.20, sides: 6, uBase: 0)
+    addCylinder( pillarX, 0, 0,   pillarX, pillarH, 0,  r0: 0.24, r1: 0.20, sides: 6, uBase: 0)
+
+    // ── Arched top: 4 cylinders following a parabolic-ish arc ──
+    let archPts: [(Float, Float)] = [
+        (-pillarX, pillarH),
+        (-0.60,    pillarH + 0.40),
+        ( 0.00,    pillarH + 0.55),
+        ( 0.60,    pillarH + 0.40),
+        ( pillarX, pillarH),
+    ]
+    for k in 0 ..< archPts.count - 1 {
+        let p0 = archPts[k], p1 = archPts[k + 1]
+        addCylinder(p0.0, p0.1, 0,  p1.0, p1.1, 0,  r0: 0.20, r1: 0.20, sides: 5, uBase: 0)
+    }
+
+    // ── Inner emissive swirl disc (vertical quad in XY plane at z=0) ──
+    // Marked with uBase=60 so the shader picks the portal-swirl branch.
+    // Disc spans from y=0.4 to y=3.4, x=±1.05.
+    let dHalfW: Float = 1.05
+    let dyMin: Float = 0.4
+    let dyMax: Float = 3.4
+    let dBase = UInt16(verts.count)
+    verts.append(WorldVertex(px: -dHalfW, py: dyMin, pz: 0, nx: 0, ny: 0, nz: 1, u: 60, v: 0))
+    verts.append(WorldVertex(px:  dHalfW, py: dyMin, pz: 0, nx: 0, ny: 0, nz: 1, u: 60, v: 0))
+    verts.append(WorldVertex(px: -dHalfW, py: dyMax, pz: 0, nx: 0, ny: 0, nz: 1, u: 60, v: 0))
+    verts.append(WorldVertex(px:  dHalfW, py: dyMax, pz: 0, nx: 0, ny: 0, nz: 1, u: 60, v: 0))
+    // Front face (CCW seen from +Z)
+    idxs.append(contentsOf: [dBase + 0, dBase + 1, dBase + 2,  dBase + 2, dBase + 1, dBase + 3])
+    // Back face (flipped winding so the swirl is visible from -Z too)
+    idxs.append(contentsOf: [dBase + 0, dBase + 2, dBase + 1,  dBase + 2, dBase + 3, dBase + 1])
+
+    let vBuf = device.makeBuffer(bytes: verts, length: verts.count * MemoryLayout<WorldVertex>.size, options: .storageModeShared)!
+    let iBuf = device.makeBuffer(bytes: idxs,  length: idxs.count  * MemoryLayout<UInt16>.size,      options: .storageModeShared)!
+    return (vBuf, iBuf, idxs.count)
+}
+
+/// Tall stone obelisk (mesh_id 14): 4-sided tapered pillar with a flat cap.
+/// Used as a perimeter ring to mark the map edge visually.
+func makeMonolith(device: MTLDevice) -> (vtx: MTLBuffer, idx: MTLBuffer, count: Int) {
+    var verts: [WorldVertex] = []
+    var idxs:  [UInt16]      = []
+
+    let sides   = 4
+    let baseR:  Float = 0.45
+    let topR:   Float = 0.30
+    let height: Float = 4.5
+
+    let bodyStart = UInt16(verts.count)
+    for s in 0 ... sides {
+        let theta = 2.0 * Float.pi * Float(s) / Float(sides)
+        let cx = cos(theta), sz = sin(theta)
+        verts.append(WorldVertex(px: cx*baseR, py: 0,      pz: sz*baseR, nx: cx, ny: 0, nz: sz, u: 0, v: 1))
+        verts.append(WorldVertex(px: cx*topR,  py: height, pz: sz*topR,  nx: cx, ny: 0, nz: sz, u: 0, v: 0))
+    }
+    for i in 0 ..< UInt16(sides) {
+        let a = bodyStart + i * 2
+        idxs.append(contentsOf: [a, a + 2, a + 1,  a + 1, a + 2, a + 3])
+    }
+
+    // Top cap (small flat top)
+    let capCenter = UInt16(verts.count)
+    verts.append(WorldVertex(px: 0, py: height, pz: 0, nx: 0, ny: 1, nz: 0, u: 0, v: 0.5))
+    let rimStart = UInt16(verts.count)
+    for s in 0 ... sides {
+        let theta = 2.0 * Float.pi * Float(s) / Float(sides)
+        verts.append(WorldVertex(px: cos(theta)*topR, py: height, pz: sin(theta)*topR, nx: 0, ny: 1, nz: 0, u: 0, v: 0))
+    }
+    for i in 0 ..< UInt16(sides) {
+        idxs.append(contentsOf: [capCenter, rimStart + i + 1, rimStart + i])
+    }
+
+    let vBuf = device.makeBuffer(bytes: verts, length: verts.count * MemoryLayout<WorldVertex>.size, options: .storageModeShared)!
+    let iBuf = device.makeBuffer(bytes: idxs,  length: idxs.count  * MemoryLayout<UInt16>.size,      options: .storageModeShared)!
+    return (vBuf, iBuf, idxs.count)
+}

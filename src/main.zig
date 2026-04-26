@@ -145,6 +145,38 @@ export fn game_init() void {
         _ = fi2;
     }
 
+    // Zone-transition portal — single entity at the back of the map.
+    // Player walks toward this to "exit" the zone.
+    {
+        const e = world.spawn();
+        world.pos[e]     = Vec3{ .x = 0, .y = 0, .z = -100 };
+        world.mesh_id[e] = 13;
+        world.scale[e]   = 1.6;
+        world.team[e]    = 13;
+        world.hp[e]      = 9999;
+        world.radius[e]  = 1.5;
+        world.vel[e]     = Vec3.zero;
+    }
+
+    // Monolith ring at the map edge — 24 stone obelisks evenly spaced around r=128.
+    // Visually marks the boundary that the hard wall in game_update enforces at r=130.
+    const N_MONOLITHS: usize = 24;
+    const MONO_RADIUS: f32 = 128.0;
+    var i: usize = 0;
+    while (i < N_MONOLITHS) : (i += 1) {
+        const angle = 2.0 * std.math.pi * @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(N_MONOLITHS));
+        const e = world.spawn();
+        world.pos[e]     = Vec3{ .x = std.math.cos(angle) * MONO_RADIUS, .y = 0, .z = std.math.sin(angle) * MONO_RADIUS };
+        world.mesh_id[e] = 14;
+        world.scale[e]   = rng_range(2.0, 2.6);
+        world.team[e]    = 14;
+        world.hp[e]      = 9999;
+        world.radius[e]  = 0.6;
+        world.vel[e]     = Vec3.zero;
+        // Random Y-rotation so adjacent monoliths don't all align identically
+        world.rot_y[e]   = rng_f32() * 2.0 * std.math.pi;
+    }
+
     // Towers: ring of stone towers around the perimeter for set dressing
     const tower_positions = [_][2]f32{
         .{   80.0,    0.0 }, .{  -80.0,    0.0 },
@@ -316,6 +348,8 @@ export fn game_fill_draws(buf: [*]u8, max_bytes: u32) u32 {
             10 => .{ 0.80, 0.90, 1.0,  1.0 },                                        // lightning bolt
             11 => .{ 0.45 + hf * 0.18, 0.42 + hf * 0.16, 0.38 + hf * 0.14, 1.0 },     // tower: warm gray stone
             12 => .{ 0.32 + hf * 0.12, 0.20 + hf * 0.08, 0.10 + hf * 0.04, 1.0 },     // torch: dark wood
+            13 => .{ 0.40, 0.45, 0.55, 1.0 },                                          // portal: cool enchanted stone (single entity, no variation)
+            14 => .{ 0.40 + hf * 0.18, 0.38 + hf * 0.14, 0.34 + hf * 0.12, 1.0 },     // monolith: ancient gray-brown stone
             else => .{ 0.5, 0.5, 0.5, 1.0 },
         };
 

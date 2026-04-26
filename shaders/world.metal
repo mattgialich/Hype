@@ -402,6 +402,56 @@ fragment float4 frag_world_forward(
         }
     }
 
+    // Zone-transition portal: enchanted stone arch + animated swirl disc
+    if (mesh_frag == 13u) {
+        if (in.uv.x >= 60.0) {
+            // SWIRL — animated emissive spiral, early return.
+            // Object_pos.xy gives stable mesh-frame coords for polar math.
+            float2 c = in.object_pos.xy - float2(0.0, 1.9);   // disc center (y midpoint)
+            float r = length(c);
+            float a = atan2(c.y, c.x);
+            if (r > 1.4) discard_fragment();                  // crop to circle inside arch
+
+            // Two-arm spiral animated outward
+            float spiral = sin(a * 3.0 + frame.time * 2.0 - r * 4.0);
+            float intensity = 0.5 + 0.5 * spiral;
+
+            // Color cycle through magic palette (sky-blue ↔ magenta)
+            float3 colA = float3(0.4, 0.7, 1.4);
+            float3 colB = float3(1.2, 0.4, 1.6);
+            float3 portal = mix(colA, colB, intensity);
+
+            // Soft circular fade at the rim
+            float fade = 1.0 - smoothstep(1.05, 1.40, r);
+            // Base glow that fills even the dim parts of the swirl
+            float3 baseGlow = float3(0.10, 0.30, 0.65) * fade;
+
+            return float4(portal * intensity * 2.5 * fade + baseGlow, 1.0);
+        }
+        // Stone columns of the arch — cooler enchanted-stone tint
+        float fbm = fbm3(in.world_pos * 1.2);
+        float noise = valueNoise3(in.world_pos * 9.0);
+        float brightness = 0.85 + 0.30 * fbm;
+        albedo = float3(0.30, 0.34, 0.40) * brightness;
+        albedo *= (0.95 + 0.10 * noise);
+        // Subtle blue tint suggesting enchanted stone
+        albedo = mix(albedo, albedo * float3(0.85, 0.95, 1.20), 0.35);
+        // Soft magic emissive on the inner-facing surfaces (low-freq glow tied to portal proximity)
+        emissive += float3(0.08, 0.18, 0.30) * 0.4;
+    }
+
+    // Monolith: ancient weathered stone, used as the perimeter ring
+    if (mesh_frag == 14u) {
+        float fbm = fbm3(in.world_pos * 1.1);
+        float noise = valueNoise3(in.world_pos * 8.0);
+        float brightness = 0.75 + 0.30 * fbm;
+        albedo = in.color.rgb * brightness;
+        albedo *= (0.92 + 0.12 * noise);
+        // Heavier moss — these stones have stood for ages
+        float mossBias = smoothstep(0.45, 0.18, fbm);
+        albedo = mix(albedo, float3(0.18, 0.30, 0.16), mossBias * 0.8);
+    }
+
     // FX: burning — add fiery emissive pulse
     if (in.fx_flags & 1u) { // BURNING
         float pulse = 0.5 + 0.5 * sin(in.world_pos.y * 4.0 + frame.time * 3.0);

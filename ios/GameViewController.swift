@@ -255,6 +255,12 @@ class GameViewController: UIViewController, MTKViewDelegate {
     var torchVBuf:         MTLBuffer!
     var torchIBuf:         MTLBuffer!
     var torchIndexCount:   Int = 0
+    var portalVBuf:        MTLBuffer!
+    var portalIBuf:        MTLBuffer!
+    var portalIndexCount:  Int = 0
+    var monolithVBuf:      MTLBuffer!
+    var monolithIBuf:      MTLBuffer!
+    var monolithIndexCount: Int = 0
 
     // Skill button
     var skillButton: UIButton!
@@ -508,6 +514,8 @@ class GameViewController: UIViewController, MTKViewDelegate {
                             case 6:  return (flowerVBuf,      flowerIBuf,      flowerIndexCount)
                             case 8:  return (towerVBuf,       towerIBuf,       towerIndexCount)
                             case 9:  return (torchVBuf,       torchIBuf,       torchIndexCount)
+                            case 13: return (portalVBuf,      portalIBuf,      portalIndexCount)
+                            case 14: return (monolithVBuf,    monolithIBuf,    monolithIndexCount)
                             default: return (capsuleVBuf,     capsuleIBuf,     capsuleIndexCount)
                             }
                         }()
@@ -789,6 +797,16 @@ class GameViewController: UIViewController, MTKViewDelegate {
         torchVBuf       = tcv
         torchIBuf       = tci
         torchIndexCount = tcc
+
+        let (pv, pi, pc) = makePortal(device: device)
+        portalVBuf       = pv
+        portalIBuf       = pi
+        portalIndexCount = pc
+
+        let (mv, mi, mc) = makeMonolith(device: device)
+        monolithVBuf       = mv
+        monolithIBuf       = mi
+        monolithIndexCount = mc
 
         // 88-byte DrawCall for the ground: identity model + earthy dark color
         // Layout: float4x4 model (64B) | float4 color (16B) | uint fx_flags (4B) | ushort mesh_id (2B) | uchar2 pad (2B)
