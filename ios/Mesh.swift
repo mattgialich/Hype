@@ -623,3 +623,150 @@ func makeTree(device: MTLDevice) -> (vtx: MTLBuffer, idx: MTLBuffer, count: Int)
     let iBuf = device.makeBuffer(bytes: idxs,  length: idxs.count  * MemoryLayout<UInt16>.size,      options: .storageModeShared)!
     return (vBuf, iBuf, idxs.count)
 }
+
+/// Stone tower (mesh_id 8): octagonal body with crenellated top.
+/// All vertices use u=0 so the world.metal stone-treatment branch applies uniformly.
+func makeTower(device: MTLDevice) -> (vtx: MTLBuffer, idx: MTLBuffer, count: Int) {
+    var verts: [WorldVertex] = []
+    var idxs:  [UInt16]      = []
+
+    let sides   = 8
+    let radius: Float = 0.7
+    let height: Float = 5.0
+    let crenH:  Float = 0.45
+    let toothFraction: Float = 0.5
+
+    // ── Body: extruded octagon ──
+    let bodyStart = UInt16(verts.count)
+    for s in 0 ... sides {
+        let theta = 2.0 * Float.pi * Float(s) / Float(sides)
+        let cx = cos(theta), sz = sin(theta)
+        verts.append(WorldVertex(px: cx*radius, py: 0,      pz: sz*radius,
+                                 nx: cx, ny: 0, nz: sz, u: 0, v: 1))
+        verts.append(WorldVertex(px: cx*radius, py: height, pz: sz*radius,
+                                 nx: cx, ny: 0, nz: sz, u: 0, v: 0))
+    }
+    for i in 0 ..< UInt16(sides) {
+        let a = bodyStart + i * 2
+        idxs.append(contentsOf: [a, a + 2, a + 1,  a + 1, a + 2, a + 3])
+    }
+
+    // ── Top cap (octagon disc at body height) — fan from center ──
+    let capCenter = UInt16(verts.count)
+    verts.append(WorldVertex(px: 0, py: height, pz: 0, nx: 0, ny: 1, nz: 0, u: 0, v: 0.5))
+    let rimStart = UInt16(verts.count)
+    for s in 0 ... sides {
+        let theta = 2.0 * Float.pi * Float(s) / Float(sides)
+        verts.append(WorldVertex(px: cos(theta)*radius, py: height, pz: sin(theta)*radius,
+                                 nx: 0, ny: 1, nz: 0, u: 0, v: 0))
+    }
+    for i in 0 ..< UInt16(sides) {
+        idxs.append(contentsOf: [capCenter, rimStart + i + 1, rimStart + i])
+    }
+
+    // ── Crenellations: alternating teeth around the rim ──
+    for s in 0 ..< sides {
+        if s % 2 != 0 { continue }
+        let theta0 = 2.0 * Float.pi * Float(s)     / Float(sides)
+        let theta1 = 2.0 * Float.pi * Float(s + 1) / Float(sides)
+        let pad = (theta1 - theta0) * (1.0 - toothFraction) * 0.5
+        let t0 = theta0 + pad
+        let t1 = theta1 - pad
+        let inner: Float = radius * 0.85
+        let r0x = cos(t0)*radius, r0z = sin(t0)*radius
+        let r1x = cos(t1)*radius, r1z = sin(t1)*radius
+        let i0x = cos(t0)*inner,  i0z = sin(t0)*inner
+        let i1x = cos(t1)*inner,  i1z = sin(t1)*inner
+        let yLo: Float = height
+        let yHi: Float = height + crenH
+        let base = UInt16(verts.count)
+        verts.append(WorldVertex(px: r0x, py: yLo, pz: r0z, nx: cos(t0), ny: 0, nz: sin(t0), u: 0, v: 1))
+        verts.append(WorldVertex(px: r0x, py: yHi, pz: r0z, nx: cos(t0), ny: 0, nz: sin(t0), u: 0, v: 0))
+        verts.append(WorldVertex(px: r1x, py: yLo, pz: r1z, nx: cos(t1), ny: 0, nz: sin(t1), u: 0, v: 1))
+        verts.append(WorldVertex(px: r1x, py: yHi, pz: r1z, nx: cos(t1), ny: 0, nz: sin(t1), u: 0, v: 0))
+        verts.append(WorldVertex(px: i0x, py: yLo, pz: i0z, nx: -cos(t0), ny: 0, nz: -sin(t0), u: 0, v: 1))
+        verts.append(WorldVertex(px: i0x, py: yHi, pz: i0z, nx: -cos(t0), ny: 0, nz: -sin(t0), u: 0, v: 0))
+        verts.append(WorldVertex(px: i1x, py: yLo, pz: i1z, nx: -cos(t1), ny: 0, nz: -sin(t1), u: 0, v: 1))
+        verts.append(WorldVertex(px: i1x, py: yHi, pz: i1z, nx: -cos(t1), ny: 0, nz: -sin(t1), u: 0, v: 0))
+        idxs.append(contentsOf: [base + 0, base + 2, base + 1,  base + 1, base + 2, base + 3])
+        idxs.append(contentsOf: [base + 1, base + 3, base + 5,  base + 5, base + 3, base + 7])
+        idxs.append(contentsOf: [base + 4, base + 5, base + 6,  base + 6, base + 5, base + 7])
+        idxs.append(contentsOf: [base + 0, base + 1, base + 4,  base + 4, base + 1, base + 5])
+        idxs.append(contentsOf: [base + 2, base + 6, base + 3,  base + 3, base + 6, base + 7])
+    }
+
+    let vBuf = device.makeBuffer(bytes: verts, length: verts.count * MemoryLayout<WorldVertex>.size, options: .storageModeShared)!
+    let iBuf = device.makeBuffer(bytes: idxs,  length: idxs.count  * MemoryLayout<UInt16>.size,      options: .storageModeShared)!
+    return (vBuf, iBuf, idxs.count)
+}
+
+/// Wall torch (mesh_id 9): wooden pole + iron bowl + emissive flame cone.
+/// uv.x bands: 0=pole, 1.5=bowl, 50=flame (>=50 marker triggers emissive shading).
+func makeTorch(device: MTLDevice) -> (vtx: MTLBuffer, idx: MTLBuffer, count: Int) {
+    var verts: [WorldVertex] = []
+    var idxs:  [UInt16]      = []
+
+    let poleSides = 6
+    let poleR: Float = 0.05
+    let poleH: Float = 1.4
+
+    // ── Wooden pole ──
+    let poleBase = UInt16(verts.count)
+    for i in 0 ... poleSides {
+        let theta = 2.0 * Float.pi * Float(i) / Float(poleSides)
+        let cx = cos(theta), sz = sin(theta)
+        verts.append(WorldVertex(px: cx*poleR, py: 0,     pz: sz*poleR,
+                                 nx: cx, ny: 0, nz: sz, u: 0, v: 1))
+        verts.append(WorldVertex(px: cx*poleR, py: poleH, pz: sz*poleR,
+                                 nx: cx, ny: 0, nz: sz, u: 0, v: 0))
+    }
+    for i in 0 ..< UInt16(poleSides) {
+        let a = poleBase + i * 2
+        idxs.append(contentsOf: [a, a + 2, a + 1,  a + 1, a + 2, a + 3])
+    }
+
+    // ── Bowl: short tapered cylinder above the pole ──
+    let bowlSides = 8
+    let bowlR1: Float = 0.10
+    let bowlR2: Float = 0.18
+    let bowlH:  Float = 0.12
+    let bowlY0: Float = poleH
+    let bowlY1: Float = poleH + bowlH
+    let bowlBase = UInt16(verts.count)
+    for i in 0 ... bowlSides {
+        let theta = 2.0 * Float.pi * Float(i) / Float(bowlSides)
+        let cx = cos(theta), sz = sin(theta)
+        verts.append(WorldVertex(px: cx*bowlR1, py: bowlY0, pz: sz*bowlR1,
+                                 nx: cx, ny: 0, nz: sz, u: 1.5, v: 1))
+        verts.append(WorldVertex(px: cx*bowlR2, py: bowlY1, pz: sz*bowlR2,
+                                 nx: cx, ny: 0, nz: sz, u: 1.5, v: 0))
+    }
+    for i in 0 ..< UInt16(bowlSides) {
+        let a = bowlBase + i * 2
+        idxs.append(contentsOf: [a, a + 2, a + 1,  a + 1, a + 2, a + 3])
+    }
+
+    // ── Flame: tapered cone (u=50 marks emissive in world.metal) ──
+    let flameSides = 8
+    let flameR: Float = 0.16
+    let flameH: Float = 0.42
+    let flameY0: Float = bowlY1
+    let flameY1: Float = bowlY1 + flameH
+    let flameBase = UInt16(verts.count)
+    for i in 0 ... flameSides {
+        let theta = 2.0 * Float.pi * Float(i) / Float(flameSides)
+        let cx = cos(theta), sz = sin(theta)
+        verts.append(WorldVertex(px: cx*flameR, py: flameY0, pz: sz*flameR,
+                                 nx: cx, ny: 0.5, nz: sz, u: 50.0, v: 1))
+        verts.append(WorldVertex(px: 0,         py: flameY1, pz: 0,
+                                 nx: 0, ny: 1, nz: 0, u: 50.0, v: 0))
+    }
+    for i in 0 ..< UInt16(flameSides) {
+        let a = flameBase + i * 2
+        idxs.append(contentsOf: [a, a + 2, a + 1])
+    }
+
+    let vBuf = device.makeBuffer(bytes: verts, length: verts.count * MemoryLayout<WorldVertex>.size, options: .storageModeShared)!
+    let iBuf = device.makeBuffer(bytes: idxs,  length: idxs.count  * MemoryLayout<UInt16>.size,      options: .storageModeShared)!
+    return (vBuf, iBuf, idxs.count)
+}

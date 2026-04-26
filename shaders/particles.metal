@@ -84,6 +84,11 @@ kernel void simulate_particles(
     p.pos   += p.vel * dt;
     p.age   += dt;
 
+    // Subtle horizontal wobble for organic drift — phase varies per particle
+    float wobble = sin(p.age * 1.7 + float(p.emitter_idx) * 0.7) * 0.15;
+    p.pos.x += wobble * dt;
+    p.pos.z += cos(p.age * 1.3 + float(p.emitter_idx) * 1.1) * 0.12 * dt;
+
     float t = saturate(p.age / p.lifetime);
     constant Emitter& em = emitters[p.emitter_idx];
     p.color = mix(float4(em.color_start), float4(em.color_end), t);
@@ -140,6 +145,12 @@ vertex PVertOut vert_particle(
     out.clip_pos = frame.view_proj * float4(world, 1.0);
     out.uv       = uvs[c];
     out.color    = float4(p.color);
+    
+    // Twinkle: low-frequency alpha pulse, phase per emitter — only meaningful for ambient (long-lived) particles
+    float twinklePhase = float(p.emitter_idx) * 1.7 + p.age * 2.4;
+    float twinkle      = 0.85 + 0.15 * sin(twinklePhase);
+    out.color.a       *= twinkle;
+    
     out.size     = p.size;
     return out;
 }
@@ -155,5 +166,10 @@ fragment float4 frag_particle(PVertOut in [[stage_in]]) {
     float4 color = in.color;
     color.rgb   *= (1.0 + core);
     color.a     *= alpha;
+    
+    // TODO: 4-point sparkle for fireflies — only emitters whose color_start.a is exactly 1.0 AND blue >= 0.1 AND red < blue
+    // (a way for the host to encode "this is a magical/firefly particle" without struct changes).
+    // Actually, simpler: derive from in.color directly — if the alpha after twinkle is below 0.85 and the green channel is dominant, draw cross-shaped instead of round.
+    
     return color;
 }

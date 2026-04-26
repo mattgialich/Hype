@@ -249,6 +249,12 @@ class GameViewController: UIViewController, MTKViewDelegate {
     var gargoyleVBuf:      MTLBuffer!
     var gargoyleIBuf:      MTLBuffer!
     var gargoyleIndexCount: Int = 0
+    var towerVBuf:         MTLBuffer!
+    var towerIBuf:         MTLBuffer!
+    var towerIndexCount:   Int = 0
+    var torchVBuf:         MTLBuffer!
+    var torchIBuf:         MTLBuffer!
+    var torchIndexCount:   Int = 0
 
     // Skill button
     var skillButton: UIButton!
@@ -500,6 +506,8 @@ class GameViewController: UIViewController, MTKViewDelegate {
                             case 4:  return (forestTreeVBuf,  forestTreeIBuf,  forestTreeIndexCount)
                             case 5:  return (rockVBuf,        rockIBuf,        rockIndexCount)
                             case 6:  return (flowerVBuf,      flowerIBuf,      flowerIndexCount)
+                            case 8:  return (towerVBuf,       towerIBuf,       towerIndexCount)
+                            case 9:  return (torchVBuf,       torchIBuf,       torchIndexCount)
                             default: return (capsuleVBuf,     capsuleIBuf,     capsuleIndexCount)
                             }
                         }()
@@ -771,6 +779,16 @@ class GameViewController: UIViewController, MTKViewDelegate {
         gargoyleVBuf       = gargv
         gargoyleIBuf       = gargi
         gargoyleIndexCount = gargc
+
+        let (twv, twi, twc) = makeTower(device: device)
+        towerVBuf       = twv
+        towerIBuf       = twi
+        towerIndexCount = twc
+
+        let (tcv, tci, tcc) = makeTorch(device: device)
+        torchVBuf       = tcv
+        torchIBuf       = tci
+        torchIndexCount = tcc
 
         // 88-byte DrawCall for the ground: identity model + earthy dark color
         // Layout: float4x4 model (64B) | float4 color (16B) | uint fx_flags (4B) | ushort mesh_id (2B) | uchar2 pad (2B)

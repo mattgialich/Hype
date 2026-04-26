@@ -44,6 +44,30 @@ export fn game_init() void {
     const spark_e = Particles.preset_emitter(.ambient_sparks, Vec3.zero);
     _ = psys.spawn_emitter(spark_e);
 
+    // Atmospheric ambient emitters scattered through the forest.
+    // Static positions — no entity binding, no per-frame sync.
+    const mote_positions = [_][2]f32{
+        .{  12.0,   8.0 }, .{ -10.0,  18.0 }, .{  20.0, -14.0 }, .{ -22.0, -10.0 },
+    };
+    for (mote_positions) |mp| {
+        const e = Particles.preset_emitter(.forest_motes, Vec3{ .x = mp[0], .y = 0, .z = mp[1] });
+        _ = psys.spawn_emitter(e);
+    }
+    const firefly_positions = [_][2]f32{
+        .{  35.0,  20.0 }, .{ -28.0,  32.0 }, .{  18.0, -36.0 }, .{ -34.0, -22.0 },
+    };
+    for (firefly_positions) |fp| {
+        const e = Particles.preset_emitter(.fireflies, Vec3{ .x = fp[0], .y = 0, .z = fp[1] });
+        _ = psys.spawn_emitter(e);
+    }
+    const ember_positions = [_][2]f32{
+        .{  26.0,  10.0 }, .{ -22.0,  20.0 }, .{  18.0, -28.0 }, .{ -30.0,  -8.0 },
+    };
+    for (ember_positions) |ep| {
+        const e = Particles.preset_emitter(.embers, Vec3{ .x = ep[0], .y = 0.2, .z = ep[1] });
+        _ = psys.spawn_emitter(e);
+    }
+
     // Inner forest: truly random positions in annulus r=[20, 128]
     // rng_radius samples r² uniformly so density is even across the area
     for (0..140) |ti| {
@@ -119,6 +143,41 @@ export fn game_init() void {
         world.team[fe]   = @intCast(6 + rng_u32() % 3); // pink / gold / lavender
         world.scale[fe]  = rng_range(0.45, 0.90);
         _ = fi2;
+    }
+
+    // Towers: ring of stone towers around the perimeter for set dressing
+    const tower_positions = [_][2]f32{
+        .{   80.0,    0.0 }, .{  -80.0,    0.0 },
+        .{    0.0,   80.0 }, .{    0.0,  -80.0 },
+        .{   55.0,   55.0 }, .{  -55.0,   55.0 },
+        .{   55.0,  -55.0 }, .{  -55.0,  -55.0 },
+    };
+    for (tower_positions) |tp| {
+        const e = world.spawn();
+        world.pos[e]     = Vec3{ .x = tp[0], .y = 0, .z = tp[1] };
+        world.mesh_id[e] = 8;
+        world.scale[e]   = rng_range(2.4, 3.2);
+        world.team[e]    = 11;            // tower stone (no existing team uses 11)
+        world.hp[e]      = 9999;
+        world.radius[e]  = 1.5;
+        world.vel[e]     = Vec3.zero;
+    }
+
+    // Torches: scattered near gargoyle positions for atmospheric lighting
+    const torch_positions = [_][2]f32{
+        .{  22.0,   8.0 }, .{  30.0,  12.0 }, .{ -18.0,  18.0 }, .{ -26.0,  22.0 },
+        .{  16.0, -24.0 }, .{  22.0, -32.0 }, .{ -28.0,  -6.0 }, .{ -32.0, -10.0 },
+        .{  36.0, -10.0 }, .{ -12.0, -22.0 }, .{   8.0,  34.0 }, .{ -32.0,  20.0 },
+    };
+    for (torch_positions) |tp| {
+        const e = world.spawn();
+        world.pos[e]     = Vec3{ .x = tp[0], .y = 0, .z = tp[1] };
+        world.mesh_id[e] = 9;
+        world.scale[e]   = rng_range(1.0, 1.4);
+        world.team[e]    = 12;            // torch (no existing team uses 12)
+        world.hp[e]      = 9999;
+        world.radius[e]  = 0.2;
+        world.vel[e]     = Vec3.zero;
     }
 
     // Gargoyle enemies: scattered near player's starting area
@@ -255,6 +314,8 @@ export fn game_fill_draws(buf: [*]u8, max_bytes: u32) u32 {
             7 => .{ 0.95, 0.80 + hf * 0.18, 0.10 + hf * 0.35, 1.0 },              // flower: gold/cream
             8  => .{ 0.60 + hf * 0.30, 0.45 + hf * 0.30, 0.90 + hf * 0.10, 1.0 }, // flower: lavender
             10 => .{ 0.80, 0.90, 1.0,  1.0 },                                        // lightning bolt
+            11 => .{ 0.45 + hf * 0.18, 0.42 + hf * 0.16, 0.38 + hf * 0.14, 1.0 },     // tower: warm gray stone
+            12 => .{ 0.32 + hf * 0.12, 0.20 + hf * 0.08, 0.10 + hf * 0.04, 1.0 },     // torch: dark wood
             else => .{ 0.5, 0.5, 0.5, 1.0 },
         };
 

@@ -44,6 +44,9 @@ pub const EmitterPreset = enum {
     death_burst,
     ground_impact,
     ambient_sparks,
+    forest_motes,
+    fireflies,
+    embers,
 };
 
 pub fn preset_emitter(kind: EmitterPreset, pos: Vec3) GpuEmitter {
@@ -123,6 +126,48 @@ pub fn preset_emitter(kind: EmitterPreset, pos: Vec3) GpuEmitter {
             .size_start   = 0.06,
             .size_end     = 0.0,
             .lifetime     = 1.5,
+            .active       = 1,
+            .spawn_accum  = 0,
+        },
+        // Slow drifting dust motes — long-lived, near-zero gravity, soft cream
+        .forest_motes => GpuEmitter{
+            .pos          = .{ pos.x, pos.y + 1.5, pos.z },
+            .emit_rate    = 4,
+            .vel_min      = .{ -0.15, 0.05, -0.15 },
+            .vel_max      = .{  0.15, 0.30,  0.15 },
+            .color_start  = .{ 0.95, 0.92, 0.78, 0.55 },
+            .color_end    = .{ 0.85, 0.80, 0.65, 0.0 },
+            .size_start   = 0.05,
+            .size_end     = 0.02,
+            .lifetime     = 6.0,
+            .active       = 1,
+            .spawn_accum  = 0,
+        },
+        // Fireflies — yellow-green twinkly, slow lateral drift
+        .fireflies => GpuEmitter{
+            .pos          = .{ pos.x, pos.y + 1.0, pos.z },
+            .emit_rate    = 3,
+            .vel_min      = .{ -0.4, 0.1, -0.4 },
+            .vel_max      = .{  0.4, 0.5,  0.4 },
+            .color_start  = .{ 0.85, 1.0, 0.35, 0.85 },
+            .color_end    = .{ 0.55, 0.85, 0.20, 0.0 },
+            .size_start   = 0.08,
+            .size_end     = 0.04,
+            .lifetime     = 4.5,
+            .active       = 1,
+            .spawn_accum  = 0,
+        },
+        // Embers — warm orange-red rising slowly, medium lifetime
+        .embers => GpuEmitter{
+            .pos          = .{ pos.x, pos.y + 0.4, pos.z },
+            .emit_rate    = 8,
+            .vel_min      = .{ -0.2, 0.4, -0.2 },
+            .vel_max      = .{  0.2, 1.0,  0.2 },
+            .color_start  = .{ 1.0, 0.55, 0.15, 0.95 },
+            .color_end    = .{ 0.7, 0.18, 0.0,  0.0 },
+            .size_start   = 0.07,
+            .size_end     = 0.0,
+            .lifetime     = 2.5,
             .active       = 1,
             .spawn_accum  = 0,
         },

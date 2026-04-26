@@ -307,6 +307,39 @@ fragment float4 frag_world_forward(
         albedo = mix(albedo, float3(0.20, 0.32, 0.18), mossBias);
     }
 
+    // Tower: same stone treatment as gargoyle/rock, slightly cooler base
+    if (mesh_frag == 8u) {
+        float fbm = fbm3(in.world_pos * 1.4);
+        float noise = valueNoise3(in.world_pos * 10.0);
+        float brightness = 0.85 + 0.30 * fbm;
+        albedo = in.color.rgb * brightness;        // base from team color (warm gray)
+        albedo *= (0.95 + 0.10 * noise);
+        // Heavier moss bias on towers — they've been there a while
+        float mossBias = smoothstep(0.42, 0.20, fbm);
+        albedo = mix(albedo, float3(0.20, 0.34, 0.18), mossBias * 0.65);
+    }
+
+    // Torch: pole / bowl / emissive flame distinguished by uv.x
+    if (mesh_frag == 9u) {
+        if (in.uv.x >= 50.0) {
+            // FLAME — pure emissive flickering warm orange, early return.
+            float flicker = 0.5 + 0.5 * sin(frame.time * 18.0 + in.world_pos.y * 7.0)
+                              + 0.25 * sin(frame.time * 33.0 + in.world_pos.x * 9.0);
+            float vBlend = saturate((in.world_pos.y - 1.5) / 0.6);  // 0 at base, 1 at tip
+            float3 core  = mix(float3(1.0, 0.55, 0.10), float3(1.0, 0.95, 0.50), 1.0 - vBlend);
+            float3 glow  = float3(2.0, 0.9, 0.25) * flicker;
+            return float4(core + glow * (1.0 - vBlend) * 1.4, 1.0);
+        } else if (in.uv.x >= 1.0 && in.uv.x < 2.0) {
+            // BOWL — dark iron-gray with subtle stone noise
+            float fbm = fbm3(in.world_pos * 6.0);
+            albedo = float3(0.18, 0.16, 0.18) * (0.8 + 0.4 * fbm);
+        } else {
+            // POLE — base is dark wood from team color, add wood grain
+            float grain = valueNoise3(in.world_pos * float3(35.0, 6.0, 35.0));
+            albedo = in.color.rgb * mix(0.85, 1.10, grain);
+        }
+    }
+
     // FX: burning — add fiery emissive pulse
     if (in.fx_flags & 1u) { // BURNING
         float pulse = 0.5 + 0.5 * sin(in.world_pos.y * 4.0 + frame.time * 3.0);
