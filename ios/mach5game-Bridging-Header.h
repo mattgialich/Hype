@@ -1,0 +1,40 @@
+// Bridging header — exposes Zig's exported C symbols to Swift.
+// Add this file to your Xcode target's "Objective-C Bridging Header" setting.
+
+#pragma once
+#include <stdint.h>
+#include <stdbool.h>
+
+// Called once on launch
+void game_init(void);
+
+// Called every frame — dt in seconds
+void game_update(float dt);
+
+// Writes FrameUniforms into out_ptr (caller allocates kUniformStride bytes)
+void game_get_frame_uniforms(float aspect, float screen_w, float screen_h, uint8_t* out_ptr);
+
+// Writes DrawCall array into buf; returns number of draw calls
+uint32_t game_fill_draws(uint8_t* buf, uint32_t max_bytes);
+
+// Returns pointer to emitter array and fills out_count
+const uint8_t* game_get_emitters(uint32_t* out_count);
+
+// Touch: world-space XZ coords, active=false to release
+void game_touch_move(float world_x, float world_z, bool active);
+
+// Trigger a skill toward world-space target
+void game_touch_skill(uint8_t skill_idx, float world_x, float world_z);
+
+// Player HP, mana, and XP fraction (0..1) for HUD
+void game_get_player_stats(float* out_hp, float* out_hp_max,
+                            float* out_mana, float* out_mana_max,
+                            float* out_xp_frac);
+
+// Player level (1-based)
+uint32_t game_get_player_level(void);
+
+// Enemy labels: fills buf with count × 16-byte EnemyLabel entries
+// Layout per entry: float world_x, float world_y, float world_z,
+//                   uint8 level, uint8 name_idx, uint8 pad[2]
+void game_get_enemy_labels(uint8_t* buf, uint32_t* out_count);

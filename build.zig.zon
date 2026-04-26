@@ -1,0 +1,8 @@
+.{
+    .name = .mach5game,
+    .version = "0.1.0",
+    .fingerprint = 0x6233d051fd5c12e6,
+    .minimum_zig_version = "0.15.0",
+    .dependencies = .{},
+    .paths = .{"."},
+}

@@ -1,0 +1,397 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		3BC916F7C2C0C71CD0152F57 /* Mesh.swift in Sources */ = {isa = PBXBuildFile; fileRef = 839EA03B3F36564AF9E07793 /* Mesh.swift */; };
+		6950BDC991D995C3280395BC /* world.metal in Sources */ = {isa = PBXBuildFile; fileRef = 2DD209E793BD42497C7D7B7A /* world.metal */; };
+		83919FB44797AAAC45920FFD /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70C919AEB022F78668E7C463 /* AppDelegate.swift */; };
+		A44E83C5A20A85EB3B94EEDA /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3F071C0F2E174A9079DA6E88 /* Foundation.framework */; };
+		B392AFE5DD799017F8D71D71 /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 738A4D7CFA25CD2BF9A3294D /* MetalKit.framework */; };
+		BA36FB5DCEC31D5342335F34 /* GameViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6C93F6C674F77ECD9C7FB6F /* GameViewController.swift */; };
+		BA7F80727C38EB0025EC5D34 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DF392B359A93823B2498B54B /* Metal.framework */; };
+		BBD6F383A39E885F415E8E2F /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2EEC8C10EB10B5E43175AB78 /* UIKit.framework */; };
+		C568B9BEE2387936305744F0 /* particles.metal in Sources */ = {isa = PBXBuildFile; fileRef = C03E0E635FDDDE2EB7F332C5 /* particles.metal */; };
+		EC43CBFD0ECA8144C9732E62 /* postprocess.metal in Sources */ = {isa = PBXBuildFile; fileRef = EF8A50791B77A50B7231EAB9 /* postprocess.metal */; };
+		F7228453419B437C2080663E /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1242D12FBC06C63FDC9C2633 /* QuartzCore.framework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		1242D12FBC06C63FDC9C2633 /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = QuartzCore.framework; sourceTree = "<group>"; };
+		2DD209E793BD42497C7D7B7A /* world.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = world.metal; sourceTree = "<group>"; };
+		2EEC8C10EB10B5E43175AB78 /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = UIKit.framework; sourceTree = "<group>"; };
+		3F071C0F2E174A9079DA6E88 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = Foundation.framework; sourceTree = "<group>"; };
+		45A0FF2F3977346D542B890F /* Mach5Game.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Mach5Game.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		70C919AEB022F78668E7C463 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		738A4D7CFA25CD2BF9A3294D /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = MetalKit.framework; sourceTree = "<group>"; };
+		839EA03B3F36564AF9E07793 /* Mesh.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mesh.swift; sourceTree = "<group>"; };
+		C03E0E635FDDDE2EB7F332C5 /* particles.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = particles.metal; sourceTree = "<group>"; };
+		C6C93F6C674F77ECD9C7FB6F /* GameViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameViewController.swift; sourceTree = "<group>"; };
+		DF392B359A93823B2498B54B /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = Metal.framework; sourceTree = "<group>"; };
+		EF8A50791B77A50B7231EAB9 /* postprocess.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = postprocess.metal; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		2F06A9C4B3CD6F9906D7A7F5 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BA7F80727C38EB0025EC5D34 /* Metal.framework in Frameworks */,
+				B392AFE5DD799017F8D71D71 /* MetalKit.framework in Frameworks */,
+				BBD6F383A39E885F415E8E2F /* UIKit.framework in Frameworks */,
+				A44E83C5A20A85EB3B94EEDA /* Foundation.framework in Frameworks */,
+				F7228453419B437C2080663E /* QuartzCore.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		41CB6F1D64ADCDC4983DBAE5 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				3F071C0F2E174A9079DA6E88 /* Foundation.framework */,
+				DF392B359A93823B2498B54B /* Metal.framework */,
+				738A4D7CFA25CD2BF9A3294D /* MetalKit.framework */,
+				1242D12FBC06C63FDC9C2633 /* QuartzCore.framework */,
+				2EEC8C10EB10B5E43175AB78 /* UIKit.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		4B7A424AA367AD988A69F3DB = {
+			isa = PBXGroup;
+			children = (
+				8C95463D9D5596DBBF1EC075 /* ios */,
+				6FE189A0F6F439C6E3A9A218 /* shaders */,
+				41CB6F1D64ADCDC4983DBAE5 /* Frameworks */,
+				D45408A51AB53FCFDD6FBAB1 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		6FE189A0F6F439C6E3A9A218 /* shaders */ = {
+			isa = PBXGroup;
+			children = (
+				C03E0E635FDDDE2EB7F332C5 /* particles.metal */,
+				EF8A50791B77A50B7231EAB9 /* postprocess.metal */,
+				2DD209E793BD42497C7D7B7A /* world.metal */,
+			);
+			path = shaders;
+			sourceTree = "<group>";
+		};
+		8C95463D9D5596DBBF1EC075 /* ios */ = {
+			isa = PBXGroup;
+			children = (
+				70C919AEB022F78668E7C463 /* AppDelegate.swift */,
+				C6C93F6C674F77ECD9C7FB6F /* GameViewController.swift */,
+				839EA03B3F36564AF9E07793 /* Mesh.swift */,
+			);
+			path = ios;
+			sourceTree = "<group>";
+		};
+		D45408A51AB53FCFDD6FBAB1 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				45A0FF2F3977346D542B890F /* Mach5Game.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		2A0C27D5AE372CD112AB3662 /* Mach5Game */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C181C26EB3352A98E1A5455C /* Build configuration list for PBXNativeTarget "Mach5Game" */;
+			buildPhases = (
+				70BDAFE6B6E5255C47155D6A /* Build Zig Static Libs */,
+				7F9DE44C15348ADF18447DE8 /* Sources */,
+				2F06A9C4B3CD6F9906D7A7F5 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Mach5Game;
+			packageProductDependencies = (
+			);
+			productName = Mach5Game;
+			productReference = 45A0FF2F3977346D542B890F /* Mach5Game.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		E3185211276941F60C552BDE /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+				};
+			};
+			buildConfigurationList = BF527D75C806B4BD82947F13 /* Build configuration list for PBXProject "Mach5Game" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 4B7A424AA367AD988A69F3DB;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = D45408A51AB53FCFDD6FBAB1 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				2A0C27D5AE372CD112AB3662 /* Mach5Game */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		70BDAFE6B6E5255C47155D6A /* Build Zig Static Libs */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build Zig Static Libs";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(SRCROOT)/zig-out/lib/libmach5game.a",
+				"$(SRCROOT)/zig-out/lib/sim/libmach5game.a",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/zsh;
+			shellScript = "export PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"\ncd \"$SRCROOT\"\n\nif ! command -v zig &>/dev/null; then\n  echo \"error: zig not found. Install with: brew install zig\"\n  exit 1\nfi\n\necho \"Building Zig static libs (device + simulator)...\"\nzig build -Drelease=true 2>&1\nBUILD_STATUS=$?\n\nif [ $BUILD_STATUS -eq 0 ]; then\n  echo \"Zig build succeeded\"\n  echo \"  device: $SRCROOT/zig-out/lib/libmach5game.a\"\n  echo \"  sim:    $SRCROOT/zig-out/lib/sim/libmach5game.a\"\nelse\n  echo \"error: Zig build failed (exit $BUILD_STATUS)\"\n  exit $BUILD_STATUS\nfi\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		7F9DE44C15348ADF18447DE8 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				83919FB44797AAAC45920FFD /* AppDelegate.swift in Sources */,
+				BA36FB5DCEC31D5342335F34 /* GameViewController.swift in Sources */,
+				3BC916F7C2C0C71CD0152F57 /* Mesh.swift in Sources */,
+				C568B9BEE2387936305744F0 /* particles.metal in Sources */,
+				EC43CBFD0ECA8144C9732E62 /* postprocess.metal in Sources */,
+				6950BDC991D995C3280395BC /* world.metal in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		3A63BEE4FE2F1A8417CC2FB3 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\".\"",
+				);
+				INFOPLIST_FILE = ios/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/zig-out/lib";
+				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/zig-out/lib/sim";
+				MARKETING_VERSION = 0.1;
+				OTHER_LDFLAGS = "-lmach5game";
+				PRODUCT_BUNDLE_IDENTIFIER = com.mach5game.Mach5Game;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		6B5E4945A97796C21E06C890 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_BITCODE = NO;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OBJC_BRIDGING_HEADER = "ios/mach5game-Bridging-Header.h";
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		AEEFAA6B1FFCC76D8A231B94 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_BITCODE = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OBJC_BRIDGING_HEADER = "ios/mach5game-Bridging-Header.h";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		F1D0E9E7569B9BEBE7A544FE /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\".\"",
+				);
+				INFOPLIST_FILE = ios/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/zig-out/lib";
+				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/zig-out/lib/sim";
+				MARKETING_VERSION = 0.1;
+				OTHER_LDFLAGS = "-lmach5game";
+				PRODUCT_BUNDLE_IDENTIFIER = com.mach5game.Mach5Game;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		BF527D75C806B4BD82947F13 /* Build configuration list for PBXProject "Mach5Game" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AEEFAA6B1FFCC76D8A231B94 /* Debug */,
+				6B5E4945A97796C21E06C890 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		C181C26EB3352A98E1A5455C /* Build configuration list for PBXNativeTarget "Mach5Game" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3A63BEE4FE2F1A8417CC2FB3 /* Debug */,
+				F1D0E9E7569B9BEBE7A544FE /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = E3185211276941F60C552BDE /* Project object */;
+}

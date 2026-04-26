@@ -1,0 +1,81 @@
+name: Mach5Game
+options:
+  bundleIdPrefix: com.mach5game
+  deploymentTarget:
+    iOS: "17.0"
+  xcodeVersion: "16.0"
+  generateEmptyDirectories: true
+
+settings:
+  base:
+    SWIFT_OBJC_BRIDGING_HEADER: ios/mach5game-Bridging-Header.h
+    SWIFT_VERSION: "6.0"
+    ENABLE_BITCODE: NO
+    MTL_ENABLE_DEBUG_INFO: INCLUDE_SOURCE
+    MTL_FAST_MATH: YES
+    SWIFT_STRICT_CONCURRENCY: minimal
+
+targets:
+  Mach5Game:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+
+    sources:
+      - ios/AppDelegate.swift
+      - ios/GameViewController.swift
+      - ios/Mesh.swift
+      - shaders/world.metal
+      - shaders/particles.metal
+      - shaders/postprocess.metal
+
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mach5game.Mach5Game
+        INFOPLIST_FILE: ios/Info.plist
+        CURRENT_PROJECT_VERSION: 1
+        MARKETING_VERSION: "0.1"
+        # Simulator links the sim variant, device links the device variant
+        LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]: $(SRCROOT)/zig-out/lib/sim
+        LIBRARY_SEARCH_PATHS[sdk=iphoneos*]: $(SRCROOT)/zig-out/lib
+        OTHER_LDFLAGS: -lmach5game
+
+    dependencies:
+      - framework: Metal.framework
+        embed: false
+      - framework: MetalKit.framework
+        embed: false
+      - framework: UIKit.framework
+        embed: false
+      - framework: Foundation.framework
+        embed: false
+      - framework: QuartzCore.framework
+        embed: false
+
+    preBuildScripts:
+      - name: Build Zig Static Libs
+        shell: /bin/zsh
+        script: |
+          export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+          cd "$SRCROOT"
+
+          if ! command -v zig &>/dev/null; then
+            echo "error: zig not found. Install with: brew install zig"
+            exit 1
+          fi
+
+          echo "Building Zig static libs (device + simulator)..."
+          zig build -Drelease=true 2>&1
+          BUILD_STATUS=$?
+
+          if [ $BUILD_STATUS -eq 0 ]; then
+            echo "Zig build succeeded"
+            echo "  device: $SRCROOT/zig-out/lib/libmach5game.a"
+            echo "  sim:    $SRCROOT/zig-out/lib/sim/libmach5game.a"
+          else
+            echo "error: Zig build failed (exit $BUILD_STATUS)"
+            exit $BUILD_STATUS
+          fi
+        outputFiles:
+          - $(SRCROOT)/zig-out/lib/libmach5game.a
+          - $(SRCROOT)/zig-out/lib/sim/libmach5game.a
