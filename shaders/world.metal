@@ -147,17 +147,81 @@ fragment float4 frag_world_forward(
         if (in.uv.x < 1.0) {
             albedo = float3(0.92, 0.74, 0.56);              // skin: head + neck
         } else if (in.uv.x < 2.0) {
-            albedo = float3(0.50, 0.07, 0.68);              // robe: torso/waist/skirt + hat brim
+            // Robe body + hat brim
+            albedo = float3(0.50, 0.07, 0.68);              // base purple
+            
+            // Vertical gradient: darken at hem, brighten at chest
+            float yFactor = (in.world_pos.y - 0.0) / (1.6 - 0.0);
+            float brightness = 0.85 + 0.25 * yFactor;
+            albedo *= brightness;
+            
+            // Cross-hatch fabric weave
+            float weave = sin(in.world_pos.x * 90.0) * sin(in.world_pos.y * 90.0);
+            albedo *= 1.0 + weave * 0.04;
+            
+            // Celestial runes
+            float runeField = valueNoise3(in.world_pos * 6.0 + float3(0, 0, frame.time * 0.05));
+            float runeMask = smoothstep(0.78, 0.85, runeField);
+            float runePulse = 0.6 + 0.4 * sin(frame.time * 1.6 + in.world_pos.y * 3.0);
+            emissive += float3(0.85, 0.65, 1.20) * runeMask * runePulse * 0.7;
+            
+            // Stronger shimmer biased toward runes
+            float shimmer = 0.5 + 0.5 * sin(frame.time * 2.3 + in.world_pos.y * 4.0);
+            emissive += albedo * float3(0.6, 0.1, 0.9) * shimmer * 0.09 * (1.0 + runeMask * 1.5);
         } else if (in.uv.x < 4.0) {
-            albedo = float3(0.22, 0.03, 0.36);              // hat cone: deep indigo
+            // Hat cone
+            albedo = float3(0.22, 0.03, 0.36);              // base deep indigo
+            
+            // Vertical gradient: darker at tip, brighter at base
+            float yFactor = (in.world_pos.y - 0.0) / (1.6 - 0.0);
+            float brightness = 0.85 + 0.15 * yFactor;
+            albedo *= brightness;
+            
+            // Starfield
+            float starHash = hash31(floor(in.world_pos * 50.0));
+            float starMask = smoothstep(0.985, 0.995, starHash);
+            float twinkle = 0.5 + 0.5 * sin(frame.time * 4.0 + starHash * 31.0);
+            emissive += float3(1.0, 0.95, 0.85) * starMask * twinkle * 1.5;
+            
+            // Cool ambient glow
+            emissive += float3(0.1, 0.15, 0.3) * 0.2;
         } else if (in.uv.x < 24.0) {
-            albedo = float3(0.42, 0.06, 0.60);              // arms: medium purple sleeves
+            // Arms / sleeves
+            albedo = float3(0.42, 0.06, 0.60);              // base purple sleeves
+            
+            // Cross-hatch fabric weave (subtler)
+            float weave = sin(in.world_pos.x * 90.0) * sin(in.world_pos.y * 90.0);
+            albedo *= 1.0 + weave * 0.03;
+            
+            // Rarer rune set on sleeves
+            float runeField = valueNoise3(in.world_pos * 6.0 + float3(0, 0, frame.time * 0.05));
+            float runeMask = smoothstep(0.83, 0.90, runeField);
+            float runePulse = 0.6 + 0.4 * sin(frame.time * 1.6 + in.world_pos.y * 3.0);
+            emissive += float3(0.85, 0.65, 1.20) * runeMask * runePulse * 0.3;
         } else if (in.uv.x < 25.0) {
-            albedo = float3(0.52, 0.33, 0.12);              // staff shaft: warm wood
+            // Staff shaft
+            albedo = float3(0.52, 0.33, 0.12);              // base warm wood
+            
+            // Wood grain
+            float grain = valueNoise3(in.world_pos * float3(40.0, 8.0, 40.0));
+            albedo *= mix(0.85, 1.10, grain);
+            
+            // Carved runes
+            float yBand = step(1.4, in.world_pos.y) * step(in.world_pos.y, 1.65);
+            float runeField = valueNoise3(in.world_pos * 6.0 + float3(0, 0, frame.time * 0.05));
+            float runeMask = smoothstep(0.83, 0.90, runeField);
+            float runePulse = 0.6 + 0.4 * sin(frame.time * 1.6 + in.world_pos.y * 3.0);
+            emissive += float3(1.1, 0.9, 0.5) * runeMask * runePulse * 0.6 * yBand;
         } else {
-            albedo = float3(0.80, 0.38, 1.00);              // staff orb: bright magic crystal
+            // Staff orb
+            albedo = float3(0.80, 0.38, 1.00);              // bright magic crystal
             float pulse = 0.5 + 0.5 * sin(frame.time * 3.5);
             emissive += float3(0.55, 0.12, 0.90) * pulse * 1.4;
+            
+            // Concentric energy rings
+            float r = fract(length(in.world_pos) * 4.0 - frame.time * 0.8);
+            float ring = smoothstep(0.0, 0.05, r) * (1.0 - smoothstep(0.05, 0.10, r));
+            emissive += float3(0.9, 0.5, 1.2) * ring * 0.8;
         }
         // Subtle shimmer on robe + hat parts only
         if (in.uv.x >= 1.0 && in.uv.x < 24.0) {
