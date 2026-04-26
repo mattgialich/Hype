@@ -83,8 +83,12 @@ kernel void simulate_particles(
         return;
     }
 
-    // Integrate: gravity + drag
-    p.vel.y -= 2.8 * dt;
+    // Integrate: gravity + drag.
+    // Gravity scaled by lifetime — combat FX (short-lived) gets full gravity so fire/ice/etc.
+    // arc and fall as expected; ambient particles (≥4.5s lifetime — fireflies, motes, embers)
+    // get zero gravity so they hover instead of raining down at terminal velocity.
+    float gravScale = saturate(1.0 - (p.lifetime - 1.5) / 3.0);
+    p.vel.y -= 2.8 * dt * gravScale;
     p.vel   *= (1.0 - dt * 0.8);
     p.pos   += p.vel * dt;
     p.age   += dt;

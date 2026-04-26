@@ -322,57 +322,80 @@ func makeGargoyle(device: MTLDevice) -> (vtx: MTLBuffer, idx: MTLBuffer, count: 
     }
 
     // ── Stone body (uBase=0) ──────────────────────────────────────────────────
-    addSphere(0, 0.46, 0, 0.20, slices: 8, rings: 6, uBase: 0)          // torso
-    addCylinder(0, 0.63, -0.02,  0, 0.70, -0.03,  r0: 0.090, r1: 0.090, sides: 5, uBase: 0) // neck
-    addSphere(0, 0.76, -0.04, 0.14, slices: 8, rings: 6, uBase: 0)      // head
+    addSphere(0, 0.46, 0, 0.22, slices: 10, rings: 6, uBase: 0)         // torso
+    addCylinder(0, 0.63, -0.02,  0, 0.71, -0.04,  r0: 0.095, r1: 0.085, sides: 6, uBase: 0) // neck
+    addSphere(0, 0.78, -0.04, 0.16, slices: 10, rings: 6, uBase: 0)     // head
 
-    // Curved horns: two-segment, each bigger and arching back
-    addCylinder(-0.07, 0.86, -0.04,  -0.13, 1.04, -0.10,  r0: 0.030, r1: 0.012, sides: 5, uBase: 0)
-    addCylinder(-0.13, 1.04, -0.10,  -0.16, 1.16,  0.00,  r0: 0.012, r1: 0.004, sides: 4, uBase: 0)
-    addCylinder( 0.07, 0.86, -0.04,   0.13, 1.04, -0.10,  r0: 0.030, r1: 0.012, sides: 5, uBase: 0)
-    addCylinder( 0.13, 1.04, -0.10,   0.16, 1.16,  0.00,  r0: 0.012, r1: 0.004, sides: 4, uBase: 0)
+    // Massive demon horns — three-segment, arcing back then forward like ram horns
+    addCylinder(-0.10, 0.90, -0.03,  -0.18, 1.10, -0.14,  r0: 0.055, r1: 0.034, sides: 6, uBase: 0)
+    addCylinder(-0.18, 1.10, -0.14,  -0.24, 1.32, -0.08,  r0: 0.034, r1: 0.020, sides: 5, uBase: 0)
+    addCylinder(-0.24, 1.32, -0.08,  -0.20, 1.46,  0.06,  r0: 0.020, r1: 0.000, sides: 4, uBase: 0)
+    addCylinder( 0.10, 0.90, -0.03,   0.18, 1.10, -0.14,  r0: 0.055, r1: 0.034, sides: 6, uBase: 0)
+    addCylinder( 0.18, 1.10, -0.14,   0.24, 1.32, -0.08,  r0: 0.034, r1: 0.020, sides: 5, uBase: 0)
+    addCylinder( 0.24, 1.32, -0.08,   0.20, 1.46,  0.06,  r0: 0.020, r1: 0.000, sides: 4, uBase: 0)
 
-    // Pointed bat-style ears
-    addCylinder(-0.13, 0.78, -0.05, -0.18, 0.86, -0.06, r0: 0.024, r1: 0.004, sides: 3, uBase: 0)
-    addCylinder( 0.13, 0.78, -0.05,  0.18, 0.86, -0.06, r0: 0.024, r1: 0.004, sides: 3, uBase: 0)
+    // Tall pointed bat ears
+    addCylinder(-0.14, 0.82, -0.05, -0.22, 0.98, -0.07, r0: 0.032, r1: 0.000, sides: 3, uBase: 0)
+    addCylinder( 0.14, 0.82, -0.05,  0.22, 0.98, -0.07, r0: 0.032, r1: 0.000, sides: 3, uBase: 0)
 
-    // Brow ridge — single thin bar above the eyes
-    addCylinder(-0.10, 0.83, -0.13,  0.10, 0.83, -0.13,  r0: 0.020, r1: 0.020, sides: 4, uBase: 0)
+    // Heavy brow ridge over the eyes
+    addCylinder(-0.13, 0.85, -0.14,  0.13, 0.85, -0.14,  r0: 0.026, r1: 0.026, sides: 4, uBase: 0)
 
-    // Glowing eye gems (uBase=8 — emissive crimson in shader)
-    addSphere(-0.05, 0.78, -0.16, 0.022, slices: 4, rings: 3, uBase: 8)
-    addSphere( 0.05, 0.78, -0.16, 0.022, slices: 4, rings: 3, uBase: 8)
+    // Big glowing eye gems (uBase=8 — emissive crimson)
+    addSphere(-0.06, 0.81, -0.17, 0.036, slices: 5, rings: 4, uBase: 8)
+    addSphere( 0.06, 0.81, -0.17, 0.036, slices: 5, rings: 4, uBase: 8)
 
-    // Fangs — two small downward cones from mouth area
-    addCylinder(-0.03, 0.74, -0.16, -0.03, 0.69, -0.16, r0: 0.013, r1: 0.000, sides: 3, uBase: 0)
-    addCylinder( 0.03, 0.74, -0.16,  0.03, 0.69, -0.16, r0: 0.013, r1: 0.000, sides: 3, uBase: 0)
+    // Lower jaw — short forward-jutting cylinder
+    addCylinder(0, 0.71, -0.10,  0, 0.69, -0.21,  r0: 0.085, r1: 0.060, sides: 6, uBase: 0)
 
-    // Arms (hanging forward-down, clawed)
-    addCylinder(-0.20, 0.50, -0.05,  -0.28, 0.28, 0.06,  r0: 0.068, r1: 0.042, sides: 5, uBase: 0)
-    addCylinder( 0.20, 0.50, -0.05,   0.28, 0.28, 0.06,  r0: 0.068, r1: 0.042, sides: 5, uBase: 0)
-    // Claw tips at end of each arm — three small claws splayed outward
+    // Upper fangs (longer)
+    addCylinder(-0.06, 0.74, -0.18, -0.06, 0.64, -0.18, r0: 0.020, r1: 0.000, sides: 3, uBase: 0)
+    addCylinder( 0.06, 0.74, -0.18,  0.06, 0.64, -0.18, r0: 0.020, r1: 0.000, sides: 3, uBase: 0)
+    // Lower fangs (point upward from the jutting jaw)
+    addCylinder(-0.04, 0.69, -0.21, -0.04, 0.76, -0.21, r0: 0.014, r1: 0.000, sides: 3, uBase: 0)
+    addCylinder( 0.04, 0.69, -0.21,  0.04, 0.76, -0.21, r0: 0.014, r1: 0.000, sides: 3, uBase: 0)
+
+    // CHEST CRYSTAL — large emissive heart-gem (uBase=8 = same shader branch as eyes)
+    addSphere(0, 0.52, -0.20, 0.062, slices: 8, rings: 6, uBase: 8)
+
+    // Pauldrons — stone shoulder armor
+    addSphere(-0.20, 0.62, 0, 0.085, slices: 6, rings: 5, uBase: 0)
+    addSphere( 0.20, 0.62, 0, 0.085, slices: 6, rings: 5, uBase: 0)
+
+    // Arms (thicker, hanging forward-down)
+    addCylinder(-0.22, 0.55, -0.05,  -0.32, 0.30, 0.08,  r0: 0.078, r1: 0.048, sides: 6, uBase: 0)
+    addCylinder( 0.22, 0.55, -0.05,   0.32, 0.30, 0.08,  r0: 0.078, r1: 0.048, sides: 6, uBase: 0)
+    // Bigger claw tips — three claws splayed aggressively
     for sx in [Float(-1), Float(1)] {
-        let baseX: Float = sx * 0.28, baseY: Float = 0.28, baseZ: Float = 0.06
+        let baseX: Float = sx * 0.32, baseY: Float = 0.30, baseZ: Float = 0.08
         for j in 0 ..< 3 {
-            let off = Float(j - 1) * 0.022
+            let off = Float(j - 1) * 0.028
             addCylinder(baseX + off, baseY, baseZ,
-                        baseX + off + sx * 0.04, baseY - 0.06, baseZ + 0.06,
-                        r0: 0.012, r1: 0.000, sides: 3, uBase: 0)
+                        baseX + off + sx * 0.07, baseY - 0.12, baseZ + 0.12,
+                        r0: 0.020, r1: 0.000, sides: 3, uBase: 0)
         }
     }
 
-    // Legs (short, tucked under body)
-    addCylinder(-0.10, 0.28, 0,  -0.11, 0.02, 0.06,  r0: 0.065, r1: 0.048, sides: 5, uBase: 0)
-    addCylinder( 0.10, 0.28, 0,   0.11, 0.02, 0.06,  r0: 0.065, r1: 0.048, sides: 5, uBase: 0)
+    // Legs (thicker)
+    addCylinder(-0.10, 0.30, 0,  -0.11, 0.02, 0.08,  r0: 0.075, r1: 0.054, sides: 6, uBase: 0)
+    addCylinder( 0.10, 0.30, 0,   0.11, 0.02, 0.08,  r0: 0.075, r1: 0.054, sides: 6, uBase: 0)
 
-    // Tail
-    addCylinder(0, 0.36, 0.10,  0, 0.14, 0.32,  r0: 0.046, r1: 0.016, sides: 4, uBase: 0)
+    // Tail — three-segment, tapering, longer
+    addCylinder(0, 0.40, 0.12,  0, 0.32, 0.28,  r0: 0.055, r1: 0.038, sides: 5, uBase: 0)
+    addCylinder(0, 0.32, 0.28,  0, 0.22, 0.42,  r0: 0.038, r1: 0.022, sides: 5, uBase: 0)
+    addCylinder(0, 0.22, 0.42,  0, 0.16, 0.54,  r0: 0.022, r1: 0.000, sides: 4, uBase: 0)
 
-    // Spine ridges — small spheres along the back, suggesting a stone backbone
-    addSphere(0, 0.62, 0.10, 0.024, slices: 4, rings: 3, uBase: 0)
-    addSphere(0, 0.55, 0.13, 0.022, slices: 4, rings: 3, uBase: 0)
-    addSphere(0, 0.48, 0.16, 0.020, slices: 4, rings: 3, uBase: 0)
-    addSphere(0, 0.41, 0.19, 0.018, slices: 4, rings: 3, uBase: 0)
+    // Spine SPIKES — large cones along the back, neck → tail base
+    let spines: [[Float]] = [
+        [0,  0.68,  0.06,  0.05,  0.86,  0.06],
+        [0,  0.60,  0.13,  0.05,  0.78,  0.13],
+        [0,  0.52,  0.18,  0.04,  0.68,  0.18],
+        [0,  0.44,  0.22,  0.04,  0.58,  0.22],
+        [0,  0.36,  0.25,  0.03,  0.48,  0.25],
+    ]
+    for s in spines {
+        addCylinder(s[0], s[1], s[2], s[3], s[4], s[5], r0: 0.030, r1: 0.000, sides: 4, uBase: 0)
+    }
 
     // ── Bat wings (uBase=30, animated in vert_world) ──────────────────────────
     // Right wing fan: root → 4 tip vertices.  uv.x=30, uv.y encodes wing extension.
