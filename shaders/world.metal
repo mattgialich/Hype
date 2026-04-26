@@ -51,6 +51,49 @@ struct GBuffer {
     float4 emissive[[color(2)]]; // rgb=emissive, a=unused
 };
 
+// Procedural noise functions
+float hash21(float2 p) {
+    return fract(sin(dot(p, float2(12.9898, 78.233))) * 43758.5453);
+}
+
+float hash31(float3 p) {
+    return fract(sin(dot(p, float3(12.9898, 78.233, 37.719))) * 43758.5453);
+}
+
+float valueNoise3(float3 p) {
+    float3 i = floor(p);
+    float3 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+
+    float c000 = hash31(i + float3(0.0, 0.0, 0.0));
+    float c100 = hash31(i + float3(1.0, 0.0, 0.0));
+    float c010 = hash31(i + float3(0.0, 1.0, 0.0));
+    float c110 = hash31(i + float3(1.0, 1.0, 0.0));
+    float c001 = hash31(i + float3(0.0, 0.0, 1.0));
+    float c101 = hash31(i + float3(1.0, 0.0, 1.0));
+    float c011 = hash31(i + float3(0.0, 1.0, 1.0));
+    float c111 = hash31(i + float3(1.0, 1.0, 1.0));
+
+    float x00 = mix(c000, c100, f.x);
+    float x10 = mix(c010, c110, f.x);
+    float x01 = mix(c001, c101, f.x);
+    float x11 = mix(c011, c111, f.x);
+
+    float y0 = mix(x00, x10, f.y);
+    float y1 = mix(x01, x11, f.y);
+
+    return mix(y0, y1, f.z);
+}
+
+float fbm3(float3 p) {
+    float f = 0.0;
+    f += 0.5000 * valueNoise3(p * 1.0);
+    f += 0.2500 * valueNoise3(p * 2.0);
+    f += 0.1250 * valueNoise3(p * 4.0);
+    f += 0.0625 * valueNoise3(p * 8.0);
+    return f;
+}
+
 vertex VertOut vert_world(
     VertIn                   in    [[stage_in]],
     constant FrameUniforms&  frame [[buffer(0)]],
@@ -126,7 +169,21 @@ fragment float4 frag_world_forward(
     // Gargoyle: stone body + dark wing membrane
     if (mesh_frag == 3u) {
         if (in.uv.x < 30.0) {
-            albedo = float3(0.30, 0.28, 0.32); // stone gray body
+            // Stone treatment with noise variation and moss
+            float fbm = fbm3(in.world_pos * 1.8);
+            float noise = valueNoise3(in.world_pos * 12.0);
+            
+            // Modulate albedo brightness ±20%
+            float brightness = 0.8 + 0.4 * fbm;
+            albedo = float3(0.30, 0.28, 0.32) * brightness;
+            
+            // Add high-frequency speckle/grain (±5% lightness)
+            float grain = 0.95 + 0.1 * noise;
+            albedo *= grain;
+            
+            // Bias toward moss in low-noise crevices
+            float mossBias = smoothstep(0.35, 0.15, fbm);
+            albedo = mix(albedo, float3(0.20, 0.32, 0.18), mossBias);
         } else {
             albedo = float3(0.15, 0.11, 0.20); // dark purple-gray wing membrane
         }
@@ -150,6 +207,12 @@ fragment float4 frag_world_forward(
                              float3(0.18, 0.09, 0.03) };
         albedo  = barks[tid % 3];
         emissive = float3(0);
+        
+        // Add moss patches on shaded sides
+        float upness = saturate(dot(normalize(in.normal), float3(0, 1, 0)));
+        float mossN = valueNoise3(in.world_pos * 0.8);
+        albedo = mix(albedo, float3(0.20, 0.36, 0.18), smoothstep(0.55, 0.75, mossN) * (1.0 - upness) * 0.6);
+        
         // Simple bark lighting (reuse same L/N below)
         float3 L = normalize(float3(0.4, 1.0, 0.25));
         float3 N = normalize(in.normal);
@@ -161,6 +224,26 @@ fragment float4 frag_world_forward(
         return float4(ambient + diffuse + rim, 1.0);
     }
 
+    // Rock treatment
+    if (mesh_frag == 5u) {
+        // Stone treatment with noise variation and moss
+        float fbm = fbm3(in.world_pos * 1.8);
+        float noise = valueNoise3(in.world_pos * 12.0);
+        
+        // Modulate albedo brightness ±20%
+        float brightness = 0.8 + 0.4 * fbm;
+        albedo = float3(0.30, 0.28, 0.32) * brightness;
+        
+        // Add high-frequency speckle/grain (±5% lightness)
+        float grain = 0.95 + 0.1 * noise;
+        albedo *= grain;
+        
+        // Bias toward moss in low-noise crevices
+        float mossBias = smoothstep(0.35, 0.15, fbm);
+        albedo = mix(albedo, float3(0.20, 0.32, 0.18), mossBias);
+    }
+
+    // FX: burning — add fiery emissive pulse
     if (in.fx_flags & 1u) { // BURNING
         float pulse = 0.5 + 0.5 * sin(in.world_pos.y * 4.0 + frame.time * 3.0);
         emissive += float3(2.0, 0.4, 0.0) * pulse;
@@ -174,17 +257,57 @@ fragment float4 frag_world_forward(
         emissive += float3(1.2, 0.0, 0.0) * pulse * 0.3;
     }
 
-    float3 L    = normalize(float3(0.4, 1.0, 0.25));
-    float3 N    = normalize(in.normal);
-    float  diff = max(dot(N, L), 0.0);
-    float  back = max(dot(N, -L), 0.0);
+    // Moss bias on shaded surfaces (apply to all opaque geometry except hero mage and tree bark)
+    if (mesh_frag != 1u && !(in.uv.x >= 10.0 && in.uv.x < 20.0)) {
+        float upness = saturate(dot(normalize(in.normal), float3(0, 1, 0)));
+        float mossAmount = (1.0 - upness) * fbm3(in.world_pos * 0.7) * 0.45;
+        albedo = mix(albedo, float3(0.18, 0.30, 0.16), mossAmount);
+    }
+
+    // Specular highlights
+    float3 L = normalize(float3(0.4, 1.0, 0.25));
+    float3 N = normalize(in.normal);
+    float3 V = normalize(frame.camera_pos - in.world_pos);
+    float3 H = normalize(L + V);
+    float specPow = max(dot(N, H), 0.0);
+    
+    // Default specular
+    float shininess = 8.0;
+    float specStrength = 0.05;
+    float3 specColor = float3(1.0, 0.95, 0.85);
+    
+    // Mage staff orb
+    if (mesh_frag == 1u && in.uv.x >= 25.0) {
+        shininess = 64.0;
+        specStrength = 0.8;
+        specColor = float3(1.0, 0.7, 1.2);
+    }
+    
+    // Frozen objects
+    if (in.fx_flags & 2u) {
+        shininess = 120.0;
+        specStrength = 0.6;
+        specColor = float3(0.85, 0.95, 1.0);
+    }
+    
+    float3 specular = pow(specPow, shininess) * specStrength * specColor;
+    
+    // Cinematic rim light
+    float rim = 1.0 - saturate(dot(N, V));
+    rim = pow(rim, 2.5);
+    
+    if (mesh_frag == 1u) {
+        emissive += rim * float3(0.30, 0.20, 0.50) * 0.4;  // soft purple magic rim
+    } else if (mesh_frag == 3u) {
+        emissive += rim * float3(0.40, 0.50, 0.55) * 0.3;  // cool stone rim
+    }
 
     // Forest: cool green canopy ambient + warm dappled sun + subtle green backlit
     float3 ambient = albedo * float3(0.10, 0.22, 0.11);
-    float3 diffuse = albedo * float3(1.5, 1.35, 0.90) * diff;
-    float3 rimback = albedo * float3(0.02, 0.18, 0.06) * back;
+    float3 diffuse = albedo * float3(1.5, 1.35, 0.90) * max(dot(N, L), 0.0);
+    float3 rimback = albedo * float3(0.02, 0.18, 0.06) * max(dot(N, -L), 0.0);
 
-    return float4(ambient + diffuse + rimback + emissive, 1.0);
+    return float4(ambient + diffuse + rimback + emissive + specular, 1.0);
 }
 
 fragment GBuffer frag_world(VertOut in [[stage_in]]) {
