@@ -34,17 +34,20 @@ fn rng_radius(r_min: f32, r_max: f32) f32 {
 }
 
 // ── Path geometry — MUST match the curve formula in shaders/world.metal ──────
-// Sin-wave centerline that pinches to x=0 at both endpoints (z=0 and z=-100).
+// Path runs from origin (0, 0, 0) to portal at (0, 0, -PATH_LEN). Two large
+// superimposed waves (one sin, one cos at different freqs) make a richly
+// winding centerline; the bell-curve envelope pinches it to x=0 at both
+// endpoints so the player and the gate are always perfectly on-axis.
+const PATH_LEN: f32 = 180.0;
+
 fn path_center_x(z: f32) f32 {
-    const t = std.math.clamp(-z / 100.0, 0.0, 1.0);
+    const t = std.math.clamp(-z / PATH_LEN, 0.0, 1.0);
     const env = 4.0 * t * (1.0 - t);
-    return env * (8.0 * std.math.sin(z * 0.06) + 3.0 * std.math.sin(z * 0.15));
+    return env * (16.0 * std.math.sin(z * 0.05) + 6.0 * std.math.cos(z * 0.08));
 }
 
-// Distance from a point (x, z) to the path. Returns large value outside the
-// active path z-range, so callers can use a single threshold for clearing.
 fn dist_to_path(x: f32, z: f32) f32 {
-    if (z > 4.0 or z < -104.0) return 9999.0;
+    if (z > 4.0 or z < -(PATH_LEN + 4.0)) return 9999.0;
     return @abs(x - path_center_x(z));
 }
 
@@ -83,12 +86,12 @@ export fn game_init() void {
         _ = psys.spawn_emitter(e);
     }
 
-    // Inner forest: truly random positions in annulus r=[20, 128].
+    // Inner forest: truly random positions in annulus r=[25, 195].
     // Reject positions that fall inside the path clearing (within 8m of the
     // path centerline) so the trail to the portal stays open.
-    for (0..140) |ti| {
+    for (0..330) |ti| {
         var angle = rng_f32() * 2.0 * std.math.pi;
-        var r     = rng_radius(20.0, 128.0);
+        var r     = rng_radius(25.0, 195.0);
         var px = std.math.cos(angle) * r;
         var pz = std.math.sin(angle) * r;
         var attempts: u32 = 0;
@@ -118,10 +121,10 @@ export fn game_init() void {
         _ = ti;
     }
 
-    // Border wall: random positions in thick annulus r=[132, 158]
-    for (0..220) |_| {
+    // Border wall: random positions in thick annulus r=[200, 235]
+    for (0..420) |_| {
         const angle = rng_f32() * 2.0 * std.math.pi;
-        const rr    = rng_radius(132.0, 158.0);
+        const rr    = rng_radius(200.0, 235.0);
         const te    = world.spawn();
         world.pos[te]    = Vec3{ .x = std.math.cos(angle) * rr, .y = 0, .z = std.math.sin(angle) * rr };
         world.mesh_id[te]= 2;
@@ -143,9 +146,9 @@ export fn game_init() void {
 
     // Rocks: random scatter across the map, avoid the very center clearing
     // and the path corridor.
-    for (0..70) |_| {
+    for (0..165) |_| {
         var angle = rng_f32() * 2.0 * std.math.pi;
-        var rr    = rng_radius(6.0, 125.0);
+        var rr    = rng_radius(6.0, 192.0);
         var px = std.math.cos(angle) * rr;
         var pz = std.math.sin(angle) * rr;
         var attempts: u32 = 0;
@@ -167,9 +170,9 @@ export fn game_init() void {
 
     // Flowers: random scatter. Stay slightly off the path so they don't
     // get walked over visually.
-    for (0..60) |fi2| {
+    for (0..140) |fi2| {
         var angle = rng_f32() * 2.0 * std.math.pi;
-        var fr    = rng_radius(5.0, 120.0);
+        var fr    = rng_radius(5.0, 188.0);
         var px = std.math.cos(angle) * fr;
         var pz = std.math.sin(angle) * fr;
         var attempts: u32 = 0;
@@ -195,19 +198,19 @@ export fn game_init() void {
     // visible from anywhere; ground-shader path leads here from the start.
     {
         const e = world.spawn();
-        world.pos[e]     = Vec3{ .x = 0, .y = 0, .z = -100 };
+        world.pos[e]     = Vec3{ .x = 0, .y = 0, .z = -PATH_LEN };
         world.mesh_id[e] = 13;
-        world.scale[e]   = 2.5;
+        world.scale[e]   = 2.8;
         world.team[e]    = 13;
         world.hp[e]      = 9999;
         world.radius[e]  = 1.5;
         world.vel[e]     = Vec3.zero;
     }
 
-    // Monolith ring at the map edge — 24 stone obelisks evenly spaced around r=128.
-    // Visually marks the boundary that the hard wall in game_update enforces at r=130.
-    const N_MONOLITHS: usize = 24;
-    const MONO_RADIUS: f32 = 128.0;
+    // Monolith ring at the map edge — 36 stone obelisks evenly spaced around r=195.
+    // Visually marks the boundary that the hard wall in game_update enforces at r=200.
+    const N_MONOLITHS: usize = 36;
+    const MONO_RADIUS: f32 = 195.0;
     var i: usize = 0;
     while (i < N_MONOLITHS) : (i += 1) {
         const angle = 2.0 * std.math.pi * @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(N_MONOLITHS));
@@ -241,17 +244,17 @@ export fn game_init() void {
         world.vel[e]     = Vec3.zero;
     }
 
-    // Path-side lantern torches — alternate sides every ~12m along the curving path
-    // so the player has lit waypoints leading them toward the gate.
-    const lantern_count: usize = 8;
+    // Path-side lantern torches — alternate sides along the curving path
+    // every ~13m so the player has lit waypoints leading them toward the gate.
+    const lantern_count: usize = 14;
     var li: usize = 0;
     while (li < lantern_count) : (li += 1) {
         const t = (@as(f32, @floatFromInt(li)) + 0.5) / @as(f32, @floatFromInt(lantern_count));
-        const z = -100.0 * t;
+        const z = -PATH_LEN * t;
         const cx = path_center_x(z);
         const side: f32 = if (li % 2 == 0) 1.0 else -1.0;
         const e = world.spawn();
-        world.pos[e]     = Vec3{ .x = cx + side * 5.0, .y = 0, .z = z };
+        world.pos[e]     = Vec3{ .x = cx + side * 5.5, .y = 0, .z = z };
         world.mesh_id[e] = 9;          // existing torch mesh
         world.scale[e]   = rng_range(1.1, 1.3);
         world.team[e]    = 12;          // dark wood color
@@ -322,8 +325,8 @@ export fn game_update(dt: f32) void {
     // Enemy AI (all types — dispatched by mesh_id inside enemy_ai.update)
     enemy_ai.update(&world, player.entity, dt, time);
 
-    // Circular map boundary — hard wall at r=63, stops player dead at the tree line
-    const MAP_RADIUS: f32 = 130.0;
+    // Circular map boundary — hard wall stops the player just inside the monolith ring.
+    const MAP_RADIUS: f32 = 200.0;
     const pp = world.pos[player.entity];
     const dist_sq = pp.x * pp.x + pp.z * pp.z;
     if (dist_sq > MAP_RADIUS * MAP_RADIUS) {
@@ -490,4 +493,4 @@ export fn game_get_emitters(out_count: *u32) [*]const u8 {
     return @ptrCast(&psys.emitters[0]);
 }
 
-const MAX_DRAW = 1024;
+const MAX_DRAW = 2048;

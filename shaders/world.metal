@@ -160,11 +160,22 @@ fragment float4 frag_world_forward(
         // Layer C: fine multi-octave grass detail
         float grass = fbm3(float3(wxz.x * 1.5, 0.0, wxz.y * 1.5));
 
+        // Region tint — large-scale (~45m) noise that shifts the moss palette
+        // by region so different parts of the forest read as different sub-biomes
+        // (cool teal moss in some areas, warm yellow-green moss in others).
+        float region = valueNoise3(float3(wxz.x * 0.022, 3.0, wxz.y * 0.022));
+
         // Floor palette: dark moss / bright moss / damp earth / fallen leaves
-        float3 mossDark  = float3(0.04, 0.16, 0.05);
-        float3 mossLight = float3(0.10, 0.30, 0.08);
+        float3 mossDark  = mix(float3(0.04, 0.16, 0.05),
+                                float3(0.04, 0.13, 0.10),
+                                region);
+        float3 mossLight = mix(float3(0.10, 0.30, 0.08),
+                                float3(0.07, 0.28, 0.18),
+                                region);
         float3 earthDark = float3(0.12, 0.08, 0.04);
-        float3 leaves    = float3(0.42, 0.22, 0.06);   // warm rust
+        float3 leaves    = mix(float3(0.42, 0.22, 0.06),
+                                float3(0.50, 0.30, 0.08),
+                                region);   // warm rust → ochre
 
         // Continuously blend palette using patch as the primary driver
         float3 col = mix(mossDark, mossLight, bias);
@@ -173,6 +184,20 @@ fragment float4 frag_world_forward(
 
         // Apply grass detail — darken valleys, brighten bumps
         col *= 0.85 + 0.30 * grass;
+
+        // Pebble scatter: high-freq hashed darker spots, cheap and adds tooth.
+        // Skips path/paved areas via gating below (multiplied by 1 - pathBlend).
+        float pebbleHash = hash21(floor(wxz * 6.0));
+        float pebble     = smoothstep(0.74, 0.88, pebbleHash);
+        col *= 1.0 - pebble * 0.16;
+
+        // Rare mushroom patches — warm-reddish spots where bias is low (mossier
+        // cells tend toward mushrooms), only appear in mossy/leaf zones (patch < 0.7).
+        float shroomHash = hash21(floor(wxz * 1.3));
+        float shroomMask = smoothstep(0.985, 0.997, shroomHash)
+                         * (1.0 - smoothstep(0.55, 0.75, patch));
+        float3 shroomCol = float3(0.75, 0.28, 0.22);
+        col = mix(col, shroomCol, shroomMask * 0.7);
 
         // Root cracks: dark valleys at zero-crossings of mid-freq noise
         float crackN = abs(valueNoise3(float3(wxz.x * 0.6, 2.0, wxz.y * 0.6)) - 0.5);
@@ -189,43 +214,58 @@ fragment float4 frag_world_forward(
         float sparkleMask = smoothstep(0.992, 0.998, sparkleHash);
         float3 sparkle    = float3(0.6, 0.7, 0.9) * sparkleMask;
 
-        // ── Winding curved path from start (0,0) to the portal at (0,-100) ──
-        // Smooth sin-wave centerline that pinches to x=0 at both endpoints.
-        float pz       = wxz.y;
-        float t_along  = saturate(-pz / 100.0);                          // 0 at start, 1 at portal
-        float envelope = 4.0 * t_along * (1.0 - t_along);                // bell curve: 0 endpoints, 1 middle
-        float center_x = envelope * (8.0 * sin(pz * 0.06) + 3.0 * sin(pz * 0.15));
-        float across   = abs(wxz.x - center_x);
+        // ── Winding curved path from start (0,0) to the portal at (0,-180) ──
+        // Two superimposed waves (one sin, one cos at different frequencies)
+        // produce a richly winding line; the bell-curve envelope pinches it
+        // to x=0 at both endpoints so player and gate are always on-axis.
+        float pz         = wxz.y;
+        float PATH_LEN   = 180.0;
+        float t_along    = saturate(-pz / PATH_LEN);                      // 0 at start, 1 at portal
+        float envelope   = 4.0 * t_along * (1.0 - t_along);               // bell curve, 0 at endpoints
+        float center_x   = envelope * (16.0 * sin(pz * 0.05) + 6.0 * cos(pz * 0.08));
+        float across     = abs(wxz.x - center_x);
 
-        // Width: wide at endpoints (4.5m radius), narrow in the middle (2.5m radius).
-        // Each endpoint widening fades over its first/last 8m.
-        float wideStart = 1.0 - smoothstep(0.0, 8.0, t_along * 100.0);    // 1 at start, 0 by 8m
-        float wideEnd   = 1.0 - smoothstep(0.0, 8.0, (1.0 - t_along) * 100.0); // 1 at portal, 0 by 8m before
-        float pathRadius = mix(2.5, 4.5, max(wideStart, wideEnd));
-        // Organic edge wobble (small, low frequency along the path)
-        pathRadius += (valueNoise3(float3(wxz.x * 0.6, 8.0, wxz.y * 0.6)) - 0.5) * 0.9;
+        // Width: wide at endpoints (4.7m radius), narrow in the middle (2.6m radius).
+        // Each endpoint widening fades over its first/last 12m of the longer path.
+        float wideStart = 1.0 - smoothstep(0.0, 12.0, t_along * PATH_LEN);
+        float wideEnd   = 1.0 - smoothstep(0.0, 12.0, (1.0 - t_along) * PATH_LEN);
+        float pathRadius = mix(2.6, 4.7, max(wideStart, wideEnd));
+        // Organic edge wobble — slightly bigger amplitude on the longer path
+        pathRadius += (valueNoise3(float3(wxz.x * 0.55, 8.0, wxz.y * 0.55)) - 0.5) * 1.1;
 
-        // Active path range: t_along in [0, 1] with a small fade outside the segment
-        float inSegment = saturate((t_along + 0.01) * 100.0) * saturate((1.01 - t_along) * 100.0);
-        // Soft-edge path blend
-        float pathBlend = (1.0 - smoothstep(pathRadius, pathRadius + 0.7, across)) * inSegment;
+        // Active path range — explicitly fade out beyond the endpoints in world Z
+        // (4m soft edges beyond z=0 and z=-PATH_LEN). Without this the path
+        // extends infinitely behind the player and beyond the portal.
+        float inSegment = saturate((-pz + 2.0) * 0.5) * saturate((pz + PATH_LEN + 2.0) * 0.5);
+        float pathBlend = (1.0 - smoothstep(pathRadius, pathRadius + 0.8, across)) * inSegment;
 
-        // CLEARING ZONE around the path — bias the floor toward bright moss + leaves only.
-        // Re-derive a clearing-friendly palette (no dark earth) and mix in based on proximity.
-        float clearingRadius = pathRadius + 7.0;
-        float clearingBlend  = (1.0 - smoothstep(clearingRadius - 3.0, clearingRadius, across)) * inSegment;
+        // CLEARING ZONE around the path — biases toward moss/leaves (no dark earth)
+        // and adds a faint warm ambient glow that suggests a sunlit cleared trail.
+        float clearingRadius = pathRadius + 8.0;
+        float clearingBlend  = (1.0 - smoothstep(clearingRadius - 4.0, clearingRadius, across)) * inSegment;
         float3 clearingCol   = mix(mossLight, leaves, smoothstep(0.55, 0.85, patch) * bias);
         clearingCol         *= 0.90 + 0.25 * grass;
-        col = mix(col, clearingCol, clearingBlend * 0.65);
+        col = mix(col, clearingCol, clearingBlend * 0.75);
+        col += float3(0.09, 0.06, 0.03) * clearingBlend * 0.45;
 
         // PATH DIRT — warm trodden brown with dark centerline rut, picks up grass detail.
-        float3 pathDirt    = float3(0.32, 0.20, 0.08);
-        float  centerWear  = 1.0 - smoothstep(0.0, 0.9, across);          // 1 at center, 0 past 0.9m
-        pathDirt          *= 1.0 - centerWear * 0.30;                     // darker rut down the middle
-        pathDirt          *= 0.85 + 0.30 * grass;
+        // Cool earth tone at the start; warms toward rust as it approaches the portal.
+        float3 dirtCool   = float3(0.28, 0.20, 0.10);    // damp cool earth (start)
+        float3 dirtWarm   = float3(0.38, 0.20, 0.06);    // warm rust (near gate)
+        float3 pathDirt   = mix(dirtCool, dirtWarm, smoothstep(0.40, 0.95, t_along));
+        float  centerWear = 1.0 - smoothstep(0.0, 0.9, across);            // 1 at center, 0 past 0.9m
+        pathDirt         *= 1.0 - centerWear * 0.30;                       // darker rut down the middle
+        pathDirt         *= 0.85 + 0.30 * grass;
+        // Path-edge stones: darker speckle right at the path edge (suggesting
+        // bordering rocks worn smooth by passers-by). Band peaks ~0.6m from edge.
+        float edgeBand    = smoothstep(pathRadius - 1.2, pathRadius - 0.6, across)
+                          * (1.0 - smoothstep(pathRadius - 0.3, pathRadius, across));
+        float edgeStoneH  = hash21(floor(wxz * 3.0));
+        float edgeStone   = smoothstep(0.55, 0.78, edgeStoneH) * edgeBand;
+        pathDirt          *= 1.0 - edgeStone * 0.30;
 
-        // PAVED COBBLESTONE near the portal (last 8m before z=-100): replaces dirt with stone slabs.
-        float pavingMask = smoothstep(0.92, 1.0, t_along);                // 0..1 over the last 8m
+        // PAVED COBBLESTONE near the portal (last 12m of the path)
+        float pavingMask = smoothstep(0.93, 1.0, t_along);                // 0..1 over the last ~12m
         float2 slabCoord = floor(wxz * 2.0);                              // 0.5m grid
         float  slabHash  = hash21(slabCoord);
         float3 slabBase  = float3(0.30, 0.31, 0.34);
