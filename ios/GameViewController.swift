@@ -388,6 +388,502 @@ private final class PortalMapView: UIView {
     }
 }
 
+// ── Inventory grid (placeholder slots for now) ──────────────────────────────
+private final class InventoryView: UIView {
+    private let cols = 5
+    private let rows = 6
+    private var slots: [UIView] = []
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        for _ in 0 ..< cols * rows {
+            let s = UIView()
+            s.backgroundColor   = UIColor(white: 0.10, alpha: 0.85)
+            s.layer.cornerRadius = 8
+            s.layer.borderWidth  = 1
+            s.layer.borderColor  = UIColor.white.withAlphaComponent(0.18).cgColor
+            slots.append(s)
+            addSubview(s)
+        }
+        // Placeholder hint label
+        let hint = UILabel()
+        hint.text = "Inventory slots (placeholder)"
+        hint.font = .systemFont(ofSize: 13, weight: .regular)
+        hint.textColor = UIColor(white: 0.55, alpha: 1)
+        hint.textAlignment = .center
+        hint.tag = 7777
+        addSubview(hint)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let pad: CGFloat = 14
+        let hintH: CGFloat = 22
+        let gridW = bounds.width - pad * 2
+        let gridH = bounds.height - pad * 2 - hintH
+        let cellW = (gridW - CGFloat(cols - 1) * 8) / CGFloat(cols)
+        let cellH = (gridH - CGFloat(rows - 1) * 8) / CGFloat(rows)
+        let cell  = min(cellW, cellH)
+        let actualW = CGFloat(cols) * cell + CGFloat(cols - 1) * 8
+        let actualH = CGFloat(rows) * cell + CGFloat(rows - 1) * 8
+        let originX = (bounds.width - actualW) / 2
+        let originY = pad
+        for (i, s) in slots.enumerated() {
+            let r = i / cols, c = i % cols
+            s.frame = CGRect(x: originX + CGFloat(c) * (cell + 8),
+                             y: originY + CGFloat(r) * (cell + 8),
+                             width: cell, height: cell)
+        }
+        if let hint = viewWithTag(7777) {
+            hint.frame = CGRect(x: 0, y: originY + actualH + 6, width: bounds.width, height: hintH)
+        }
+    }
+}
+
+// ── Skill tree — radial node layout with allocatable bonuses ────────────────
+private final class SkillTreeView: UIView {
+
+    struct Node {
+        let id: Int
+        let ring: Int            // 0 = center, 1..N = rings outward
+        let position: CGPoint    // relative to tree center, in local coords
+        let bonus: String
+        let bonusColor: UIColor  // category tint (red=offence, green=defence, blue=mana, etc.)
+        let isKeystone: Bool     // outer ring nodes — bigger circle, fancier text
+        let connections: [Int]
+        var allocated: Bool
+    }
+
+    private(set) var nodes: [Node] = []
+    private var nodeViews: [UIButton] = []
+    private let connectionLayer = CAShapeLayer()
+    private let backgroundGradient = CAGradientLayer()
+    private let crystalChip = UIView()
+    private let crystalLabel = UILabel()
+    var playerLevel: Int = 1 { didSet { refreshCrystalDisplay() } }
+    var onAllocated: (() -> Void)?
+
+    private var crystalsAvailable: Int {
+        // Center node is always free; every additional allocation costs 1 crystal.
+        let spent = nodes.filter({ $0.allocated }).count - 1
+        return max(0, playerLevel - max(0, spent))
+    }
+
+    private var spentCrystals: Int {
+        return max(0, nodes.filter({ $0.allocated }).count - 1)
+    }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+
+        backgroundGradient.colors = [
+            UIColor(red: 0.06, green: 0.04, blue: 0.18, alpha: 1).cgColor,
+            UIColor(red: 0.02, green: 0.02, blue: 0.08, alpha: 1).cgColor,
+        ]
+        backgroundGradient.startPoint = CGPoint(x: 0.5, y: 0)
+        backgroundGradient.endPoint   = CGPoint(x: 0.5, y: 1)
+        layer.addSublayer(backgroundGradient)
+
+        connectionLayer.fillColor = UIColor.clear.cgColor
+        connectionLayer.lineWidth = 2
+        layer.addSublayer(connectionLayer)
+
+        nodes = Self.generateTree()
+        nodes[0].allocated = true   // center starts allocated for free
+
+        // Build node buttons
+        for (i, n) in nodes.enumerated() {
+            let btn = UIButton(type: .custom)
+            btn.tag = i
+            btn.titleLabel?.numberOfLines = 0
+            btn.titleLabel?.textAlignment = .center
+            btn.titleLabel?.font = .systemFont(ofSize: n.isKeystone ? 11 : 9, weight: .heavy)
+            btn.setTitle(n.bonus, for: .normal)
+            btn.layer.borderWidth = 1.5
+            btn.layer.shadowColor   = UIColor.black.cgColor
+            btn.layer.shadowOpacity = 0.7
+            btn.layer.shadowRadius  = 4
+            btn.layer.shadowOffset  = .zero
+            btn.addTarget(self, action: #selector(nodeTapped(_:)), for: .touchUpInside)
+            nodeViews.append(btn)
+            addSubview(btn)
+        }
+
+        // Crystal chip (top-left of the tree panel) — shows available skill crystals
+        crystalChip.backgroundColor = UIColor(white: 0.05, alpha: 0.92)
+        crystalChip.layer.cornerRadius = 14
+        crystalChip.layer.borderWidth  = 1.5
+        crystalChip.layer.borderColor  = UIColor(red: 0.55, green: 0.85, blue: 1.0, alpha: 1).cgColor
+        addSubview(crystalChip)
+
+        crystalLabel.font = .systemFont(ofSize: 14, weight: .heavy)
+        crystalLabel.textColor = UIColor(red: 0.65, green: 0.90, blue: 1.0, alpha: 1)
+        crystalLabel.textAlignment = .center
+        crystalLabel.layer.shadowColor   = UIColor.black.cgColor
+        crystalLabel.layer.shadowOpacity = 0.8
+        crystalLabel.layer.shadowRadius  = 3
+        crystalLabel.layer.shadowOffset  = .zero
+        addSubview(crystalLabel)
+
+        refreshAllVisuals()
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    private static func generateTree() -> [Node] {
+        // Deterministic seeded generation so the tree looks the same across launches.
+        var rng: UInt32 = 0xA1B2C3D4
+        func next() -> UInt32 {
+            rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5
+            return rng
+        }
+        func pick<T>(_ arr: [T]) -> T { arr[Int(next() % UInt32(arr.count))] }
+
+        // Bonus pool — categorised so node colour matches the role
+        struct B { let text: String; let color: UIColor }
+        let red    = UIColor(red: 1.0,  green: 0.30, blue: 0.25, alpha: 1)
+        let green  = UIColor(red: 0.40, green: 0.95, blue: 0.40, alpha: 1)
+        let blue   = UIColor(red: 0.40, green: 0.65, blue: 1.0,  alpha: 1)
+        let purple = UIColor(red: 0.85, green: 0.40, blue: 1.0,  alpha: 1)
+        let gold   = UIColor(red: 1.0,  green: 0.82, blue: 0.30, alpha: 1)
+        let offence: [B] = [
+            .init(text: "+5\nDamage",         color: red),
+            .init(text: "+10\nDamage",        color: red),
+            .init(text: "+15%\nDamage",       color: red),
+            .init(text: "+20%\nDamage",       color: red),
+            .init(text: "+25%\nSpell\nDamage",color: purple),
+            .init(text: "+10%\nCast Speed",   color: purple),
+            .init(text: "+15%\nCrit Chance",  color: red),
+            .init(text: "+25%\nCrit Damage",  color: red),
+        ]
+        let defence: [B] = [
+            .init(text: "+30 HP",             color: green),
+            .init(text: "+50 HP",             color: green),
+            .init(text: "+10%\nHP",           color: green),
+            .init(text: "+15%\nArmour",       color: green),
+            .init(text: "+8%\nDmg Reduce",    color: green),
+            .init(text: "+15%\nMove Speed",   color: green),
+        ]
+        let utility: [B] = [
+            .init(text: "+20\nMana",          color: blue),
+            .init(text: "+10%\nMana",         color: blue),
+            .init(text: "+15%\nMana Regen",   color: blue),
+            .init(text: "+10%\nCooldowns",    color: blue),
+            .init(text: "+15%\nXP Gain",      color: gold),
+        ]
+        let keystones: [B] = [
+            .init(text: "Wizard's\nInsight",  color: purple),
+            .init(text: "Forest\nPact",       color: green),
+            .init(text: "Ember\nHeart",       color: red),
+            .init(text: "Storm\nCaller",      color: blue),
+            .init(text: "Stone\nResolve",     color: gold),
+            .init(text: "Bloodless",          color: red),
+            .init(text: "Soulbinder",         color: purple),
+            .init(text: "Wraith\nForm",       color: blue),
+        ]
+
+        var out: [Node] = []
+        // Center node: starting point, always allocated.
+        out.append(Node(id: 0, ring: 0, position: .zero,
+                         bonus: "Soul\nCore",
+                         bonusColor: gold,
+                         isKeystone: false,
+                         connections: [],
+                         allocated: false))
+
+        // Helper to lay out a ring with N nodes evenly spaced
+        let rings: [(count: Int, radius: CGFloat, offset: CGFloat)] = [
+            (count: 6,  radius: 100, offset: 0),
+            (count: 10, radius: 175, offset: .pi / 10),
+            (count: 14, radius: 250, offset: 0),
+            (count: 8,  radius: 325, offset: .pi / 8),    // keystones
+        ]
+        var idCounter = 1
+        var ringStartIds: [[Int]] = [[0]]
+        for (rIdx, ring) in rings.enumerated() {
+            var ids: [Int] = []
+            for i in 0 ..< ring.count {
+                let ang = ring.offset + (CGFloat.pi * 2.0 * CGFloat(i)) / CGFloat(ring.count)
+                let pos = CGPoint(x: cos(ang) * ring.radius, y: sin(ang) * ring.radius)
+                let isKey = (rIdx == rings.count - 1)
+                let bonus: B
+                if isKey { bonus = pick(keystones) }
+                else if i % 3 == 0 { bonus = pick(offence) }
+                else if i % 3 == 1 { bonus = pick(defence) }
+                else { bonus = pick(utility) }
+                out.append(Node(id: idCounter, ring: rIdx + 1,
+                                 position: pos,
+                                 bonus: bonus.text,
+                                 bonusColor: bonus.color,
+                                 isKeystone: isKey,
+                                 connections: [],
+                                 allocated: false))
+                ids.append(idCounter)
+                idCounter += 1
+            }
+            ringStartIds.append(ids)
+        }
+
+        // Build connections: each node connects to the closest node in the
+        // ring inside it, plus its two angular neighbours in the same ring.
+        for rIdx in 1 ..< ringStartIds.count {
+            let outer = ringStartIds[rIdx]
+            let inner = ringStartIds[rIdx - 1]
+            for (i, oid) in outer.enumerated() {
+                // Closest inner-ring connection (by angular distance)
+                let opos = out[oid].position
+                var bestId = inner[0]
+                var bestD: CGFloat = .greatestFiniteMagnitude
+                for iid in inner {
+                    let dx = out[iid].position.x - opos.x
+                    let dy = out[iid].position.y - opos.y
+                    let d = dx * dx + dy * dy
+                    if d < bestD { bestD = d; bestId = iid }
+                }
+                out[oid].connections.append(bestId)
+                out[bestId].connections.append(oid)
+                // Lateral connection to next neighbour in same ring (every other slot)
+                if i % 2 == 0 {
+                    let nextI = (i + 1) % outer.count
+                    let nid = outer[nextI]
+                    out[oid].connections.append(nid)
+                    out[nid].connections.append(oid)
+                }
+            }
+        }
+        // Dedup connections
+        for i in 0 ..< out.count {
+            out[i].connections = Array(Set(out[i].connections))
+        }
+        return out
+    }
+
+    @objc private func nodeTapped(_ btn: UIButton) {
+        let id = btn.tag
+        if id < 0 || id >= nodes.count { return }
+        if nodes[id].allocated { return }
+        // Must be connected to an already-allocated node
+        let canAllocate = nodes[id].connections.contains(where: { nodes[$0].allocated })
+        guard canAllocate else { return }
+        guard crystalsAvailable > 0 else { return }
+        nodes[id].allocated = true
+        // Pulse animation on the node
+        UIView.animate(withDuration: 0.10, animations: {
+            btn.transform = CGAffineTransform(scaleX: 1.18, y: 1.18)
+        }, completion: { _ in
+            UIView.animate(withDuration: 0.18) {
+                btn.transform = .identity
+            }
+        })
+        refreshAllVisuals()
+        onAllocated?()
+    }
+
+    private func refreshAllVisuals() {
+        // Connection lines: gold if both endpoints allocated, else faint gray
+        let gold = UIColor(red: 1.0,  green: 0.78, blue: 0.18, alpha: 1).cgColor
+        let dim  = UIColor(white: 1, alpha: 0.10).cgColor
+        let activePath = UIBezierPath()
+        let dimPath    = UIBezierPath()
+        let cx = bounds.width / 2, cy = bounds.height / 2
+        for n in nodes {
+            for c in n.connections where c > n.id {
+                let other = nodes[c]
+                let p1 = CGPoint(x: cx + n.position.x,     y: cy + n.position.y)
+                let p2 = CGPoint(x: cx + other.position.x, y: cy + other.position.y)
+                if n.allocated && other.allocated {
+                    activePath.move(to: p1); activePath.addLine(to: p2)
+                } else {
+                    dimPath.move(to: p1);    dimPath.addLine(to: p2)
+                }
+            }
+        }
+        // Dim layer
+        connectionLayer.frame = bounds
+        connectionLayer.path = nil
+        // Replace with two CAShapeLayers — easier than re-drawing
+        connectionLayer.sublayers?.forEach { $0.removeFromSuperlayer() }
+        let dl = CAShapeLayer(); dl.path = dimPath.cgPath
+        dl.strokeColor = dim; dl.lineWidth = 2; dl.fillColor = UIColor.clear.cgColor
+        connectionLayer.addSublayer(dl)
+        let al = CAShapeLayer(); al.path = activePath.cgPath
+        al.strokeColor = gold; al.lineWidth = 2.5; al.fillColor = UIColor.clear.cgColor
+        al.shadowColor   = gold
+        al.shadowOpacity = 0.55
+        al.shadowRadius  = 6
+        al.shadowOffset  = .zero
+        connectionLayer.addSublayer(al)
+
+        // Node visuals
+        for (i, n) in nodes.enumerated() {
+            let btn = nodeViews[i]
+            let canAllocate = !n.allocated && n.connections.contains(where: { nodes[$0].allocated }) && crystalsAvailable > 0
+            if n.allocated {
+                btn.backgroundColor = n.bonusColor.withAlphaComponent(0.92)
+                btn.layer.borderColor = UIColor.white.withAlphaComponent(0.85).cgColor
+                btn.setTitleColor(.white, for: .normal)
+                btn.layer.shadowOpacity = 0.85
+                btn.layer.shadowColor   = n.bonusColor.cgColor
+                btn.layer.shadowRadius  = 8
+            } else if canAllocate {
+                btn.backgroundColor = UIColor(white: 0.20, alpha: 0.85)
+                btn.layer.borderColor = UIColor.white.withAlphaComponent(0.65).cgColor
+                btn.setTitleColor(UIColor(white: 0.95, alpha: 1), for: .normal)
+                btn.layer.shadowOpacity = 0.4
+                btn.layer.shadowColor   = UIColor.white.cgColor
+                btn.layer.shadowRadius  = 5
+            } else {
+                btn.backgroundColor = UIColor(white: 0.10, alpha: 0.65)
+                btn.layer.borderColor = UIColor.white.withAlphaComponent(0.18).cgColor
+                btn.setTitleColor(UIColor(white: 0.55, alpha: 1), for: .normal)
+                btn.layer.shadowOpacity = 0.0
+            }
+        }
+        refreshCrystalDisplay()
+    }
+
+    private func refreshCrystalDisplay() {
+        crystalLabel.text = "💎  \(crystalsAvailable) Skill Crystal\(crystalsAvailable == 1 ? "" : "s")"
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        backgroundGradient.frame = bounds
+        connectionLayer.frame    = bounds
+        let cx = bounds.width / 2, cy = bounds.height / 2
+        for (i, n) in nodes.enumerated() {
+            let btn = nodeViews[i]
+            let size: CGFloat = n.isKeystone ? 64 : (n.ring == 0 ? 56 : 50)
+            btn.frame = CGRect(x: cx + n.position.x - size / 2,
+                               y: cy + n.position.y - size / 2,
+                               width: size, height: size)
+            btn.layer.cornerRadius = size / 2
+        }
+        // Crystal chip top-left of tree
+        let chipW: CGFloat = 175, chipH: CGFloat = 30
+        crystalChip.frame  = CGRect(x: 16, y: 16, width: chipW, height: chipH)
+        crystalLabel.frame = crystalChip.frame
+        // Re-issue connection paths (depend on bounds)
+        refreshAllVisuals()
+    }
+}
+
+// ── Full-screen game menu — Inventory / Skills tabs ────────────────────────
+private final class GameMenuOverlay: UIView {
+    enum Tab { case inventory, skills }
+    var onClose: (() -> Void)?
+
+    private let panel       = UIView()
+    private let titleLbl    = UILabel()
+    private let invTab      = UIButton(type: .system)
+    private let skillTab    = UIButton(type: .system)
+    private let underline   = UIView()
+    private let contentArea = UIView()
+    private let inventory   = InventoryView()
+    let skillTree           = SkillTreeView()
+    private let closeBtn    = UIButton(type: .system)
+
+    private var current: Tab = .skills
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = UIColor(white: 0, alpha: 0.78)
+        isUserInteractionEnabled = true
+
+        panel.backgroundColor = UIColor(white: 0.04, alpha: 0.96)
+        panel.layer.cornerRadius = 18
+        panel.layer.borderWidth  = 1
+        panel.layer.borderColor  = UIColor.white.withAlphaComponent(0.20).cgColor
+        addSubview(panel)
+
+        titleLbl.text = "Character"
+        titleLbl.font = .systemFont(ofSize: 22, weight: .heavy)
+        titleLbl.textColor = .white
+        titleLbl.textAlignment = .center
+        panel.addSubview(titleLbl)
+
+        for (btn, title, tab) in [(invTab, "Inventory", Tab.inventory),
+                                   (skillTab, "Skills",    Tab.skills)] {
+            btn.setTitle(title, for: .normal)
+            btn.titleLabel?.font = .systemFont(ofSize: 16, weight: .bold)
+            btn.tintColor = .white
+            btn.addAction(UIAction { [weak self] _ in self?.switchTab(tab) }, for: .touchUpInside)
+            panel.addSubview(btn)
+        }
+        underline.backgroundColor = UIColor(red: 1.0, green: 0.82, blue: 0.30, alpha: 1)
+        underline.layer.cornerRadius = 1.5
+        panel.addSubview(underline)
+
+        contentArea.layer.cornerRadius = 12
+        contentArea.layer.masksToBounds = true
+        contentArea.backgroundColor = UIColor(white: 0.02, alpha: 1)
+        panel.addSubview(contentArea)
+
+        contentArea.addSubview(inventory)
+        contentArea.addSubview(skillTree)
+
+        closeBtn.setTitle("✕  Close", for: .normal)
+        closeBtn.titleLabel?.font = .systemFont(ofSize: 15, weight: .semibold)
+        closeBtn.tintColor = UIColor(white: 0.8, alpha: 1)
+        closeBtn.addAction(UIAction { [weak self] _ in self?.onClose?() }, for: .touchUpInside)
+        panel.addSubview(closeBtn)
+
+        switchTab(.skills)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    func switchTab(_ tab: Tab) {
+        current = tab
+        inventory.isHidden = tab != .inventory
+        skillTree.isHidden = tab != .skills
+        UIView.animate(withDuration: 0.18) { self.layoutTabs() }
+    }
+
+    private func layoutTabs() {
+        // Move the underline beneath the active tab
+        let target = current == .inventory ? invTab : skillTab
+        underline.frame = CGRect(x: target.frame.minX + 8,
+                                  y: target.frame.maxY - 2,
+                                  width: target.frame.width - 16,
+                                  height: 3)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let isPad   = traitCollection.horizontalSizeClass == .regular
+        let panelW  = isPad ? min(bounds.width - 60, 1100) : min(bounds.width - 16, 480)
+        let panelH  = min(bounds.height - 40, isPad ? 820 : 720)
+        panel.frame = CGRect(x: (bounds.width - panelW) / 2,
+                             y: (bounds.height - panelH) / 2,
+                             width: panelW, height: panelH)
+
+        titleLbl.frame = CGRect(x: 0, y: 16, width: panelW, height: 30)
+        // Tab buttons centered side-by-side
+        let tabW: CGFloat = 130
+        let tabH: CGFloat = 36
+        let tabsY = titleLbl.frame.maxY + 8
+        let totalTabsW = tabW * 2 + 16
+        let tabsX = (panelW - totalTabsW) / 2
+        invTab.frame   = CGRect(x: tabsX,                 y: tabsY, width: tabW, height: tabH)
+        skillTab.frame = CGRect(x: tabsX + tabW + 16,     y: tabsY, width: tabW, height: tabH)
+        layoutTabs()
+
+        // Close button — pinned bottom-right of panel
+        closeBtn.frame = CGRect(x: panelW - 110, y: panelH - 38, width: 96, height: 28)
+
+        // Content area fills the rest
+        let contentY = invTab.frame.maxY + 10
+        contentArea.frame = CGRect(x: 12,
+                                    y: contentY,
+                                    width: panelW - 24,
+                                    height: panelH - contentY - 48)
+
+        inventory.frame = contentArea.bounds
+        skillTree.frame = contentArea.bounds
+    }
+}
+
 @MainActor
 class GameViewController: UIViewController, MTKViewDelegate {
 
@@ -507,6 +1003,11 @@ class GameViewController: UIViewController, MTKViewDelegate {
     private var portalUIVisible: Bool = false
     private var portalCooldown:  Float = 0     // seconds — block re-show after dismiss
 
+    // Top-right menu button + full-screen Inventory/Skills overlay
+    private var menuButton:    UIButton!
+    private var menuOverlay:   GameMenuOverlay!
+    private var menuUIVisible: Bool = false
+
     // GBuffer textures (recreated on resize)
     var albedoTex:   MTLTexture?
     var normalTex:   MTLTexture?
@@ -596,9 +1097,24 @@ class GameViewController: UIViewController, MTKViewDelegate {
         // Enemy label overlay — full screen so world-projected positions land correctly
         labelOverlay.frame = view.bounds
 
-        // Level label — top-left corner
+        // Level label — centred, just above the XP bar
+        levelLabel.frame = CGRect(x: (view.bounds.width - 90) / 2,
+                                   y: xpY - 22,
+                                   width: 90, height: 20)
+
+        // Menu button — top-right corner
         let topSafe = view.safeAreaInsets.top
-        levelLabel.frame = CGRect(x: 16, y: topSafe + 8, width: 80, height: 24)
+        let mb: CGFloat = 52
+        menuButton.frame = CGRect(x: view.bounds.width - 14 - mb,
+                                   y: topSafe + 14,
+                                   width: mb, height: mb)
+        menuButton.layer.cornerRadius = mb / 2
+
+        // Menu overlay — fullscreen
+        menuOverlay.frame = view.bounds
+
+        // Portal map view (also fullscreen)
+        portalMapView.frame = view.bounds
     }
 
     // ── MTKViewDelegate ──────────────────────────────────────────────────────
@@ -625,8 +1141,8 @@ class GameViewController: UIViewController, MTKViewDelegate {
             presentPortalUI()
         }
 
-        // 1. Tick game (frozen while the portal UI is shown)
-        if !portalUIVisible {
+        // 1. Tick game (frozen while a full-screen UI is shown)
+        if !portalUIVisible && !menuUIVisible {
             game_update(dt)
         }
 
@@ -975,6 +1491,48 @@ class GameViewController: UIViewController, MTKViewDelegate {
         portalMapView.onForest = { [weak self] in self?.dismissPortalUI() }
         portalMapView.onComingSoon = { [weak self] zone in self?.showComingSoonAlert(zone: zone) }
         view.addSubview(portalMapView)
+
+        // ── Top-right menu button + full-screen Inventory/Skills overlay
+        menuButton = UIButton(type: .custom)
+        menuButton.setTitle("☰", for: .normal)
+        menuButton.titleLabel?.font = .systemFont(ofSize: 24, weight: .heavy)
+        menuButton.setTitleColor(.white, for: .normal)
+        menuButton.backgroundColor = UIColor(white: 0.08, alpha: 0.85)
+        menuButton.layer.borderWidth = 2
+        menuButton.layer.borderColor = UIColor.white.withAlphaComponent(0.40).cgColor
+        menuButton.layer.shadowColor   = UIColor.black.cgColor
+        menuButton.layer.shadowOpacity = 0.6
+        menuButton.layer.shadowRadius  = 6
+        menuButton.layer.shadowOffset  = .zero
+        menuButton.addTarget(self, action: #selector(menuButtonTapped), for: .touchUpInside)
+        view.addSubview(menuButton)
+
+        menuOverlay = GameMenuOverlay(frame: view.bounds)
+        menuOverlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        menuOverlay.isHidden = true
+        menuOverlay.onClose = { [weak self] in self?.dismissMenu() }
+        view.addSubview(menuOverlay)
+    }
+
+    @objc private func menuButtonTapped() {
+        if menuUIVisible { dismissMenu() } else { presentMenu() }
+    }
+
+    private func presentMenu() {
+        guard !menuUIVisible else { return }
+        menuUIVisible = true
+        menuOverlay.skillTree.playerLevel = Int(min(255, game_get_player_level()))
+        menuOverlay.alpha = 0
+        menuOverlay.isHidden = false
+        UIView.animate(withDuration: 0.20) { self.menuOverlay.alpha = 1 }
+    }
+
+    private func dismissMenu() {
+        guard menuUIVisible else { return }
+        menuUIVisible = false
+        UIView.animate(withDuration: 0.18, animations: { self.menuOverlay.alpha = 0 }) { _ in
+            self.menuOverlay.isHidden = true
+        }
     }
 
     // ── Portal map UI helpers ────────────────────────────────────────────────
