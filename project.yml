@@ -25,6 +25,7 @@ targets:
       - ios/AppDelegate.swift
       - ios/GameViewController.swift
       - ios/Mesh.swift
+      - ios/PortalMapView.swift
       - shaders/world.metal
       - shaders/particles.metal
       - shaders/postprocess.metal

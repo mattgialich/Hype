@@ -502,35 +502,243 @@ func makeLightning(device: MTLDevice) -> (vtx: MTLBuffer, idx: MTLBuffer, count:
     var idxs:  [UInt16]      = []
 
     let totalH: Float = 16.0
-    let w: Float = 0.04   // half-width — thin crisp bolt
 
     // Kink heights and lateral offsets — tighter zigzag for a sharper bolt
     let ys: [Float] = [0.0, 1.4, 2.9, 4.6, 6.5, 8.8, 11.4, totalH]
     let ks: [Float] = [0.0, 0.14, -0.11, 0.18, -0.13, 0.10, -0.09, 0.0]
     let n = ys.count - 1
 
-    // Two perpendicular planes: XY (kinks in X) and ZY (kinks in Z)
-    for pass in 0..<2 {
+    // Helper to compute width at a given height (tapered from 0.10 at bottom to 0.04 at top)
+    func getWidth(_ y: Float) -> Float {
+        let t: Float = y / totalH
+        let baseW: Float = 0.10
+        let topW:  Float = 0.04
+        return baseW + (topW - baseW) * t
+    }
+
+    // Main bolt with tapering width and 3 planes (XY, ZY, and 45°)
+    for pass in 0..<3 {
         for i in 0..<n {
             let y0 = ys[i], y1 = ys[i+1]
             let k0 = ks[i], k1 = ks[i+1]
             let base = UInt16(verts.count)
+            
+            // Compute widths for this segment
+            let w0 = getWidth(y0)
+            let w1 = getWidth(y1)
+            
             let uv0 = Float(i)   / Float(n)
             let uv1 = Float(i+1) / Float(n)
+            
             if pass == 0 {
-                verts.append(WorldVertex(px: k0-w, py: y0, pz: 0,    nx: 0, ny: 0, nz: 1, u: 0, v: uv0))
-                verts.append(WorldVertex(px: k0+w, py: y0, pz: 0,    nx: 0, ny: 0, nz: 1, u: 1, v: uv0))
-                verts.append(WorldVertex(px: k1-w, py: y1, pz: 0,    nx: 0, ny: 0, nz: 1, u: 0, v: uv1))
-                verts.append(WorldVertex(px: k1+w, py: y1, pz: 0,    nx: 0, ny: 0, nz: 1, u: 1, v: uv1))
+                // XY plane (kinks in X)
+                verts.append(WorldVertex(px: k0-w0, py: y0, pz: 0,    nx: 0, ny: 0, nz: 1, u: 0, v: uv0))
+                verts.append(WorldVertex(px: k0+w0, py: y0, pz: 0,    nx: 0, ny: 0, nz: 1, u: 1, v: uv0))
+                verts.append(WorldVertex(px: k1-w1, py: y1, pz: 0,    nx: 0, ny: 0, nz: 1, u: 0, v: uv1))
+                verts.append(WorldVertex(px: k1+w1, py: y1, pz: 0,    nx: 0, ny: 0, nz: 1, u: 1, v: uv1))
+            } else if pass == 1 {
+                // ZY plane (kinks in Z)
+                verts.append(WorldVertex(px: 0,    py: y0, pz: k0-w0, nx: 1, ny: 0, nz: 0, u: 0, v: uv0))
+                verts.append(WorldVertex(px: 0,    py: y0, pz: k0+w0, nx: 1, ny: 0, nz: 0, u: 1, v: uv0))
+                verts.append(WorldVertex(px: 0,    py: y1, pz: k1-w1, nx: 1, ny: 0, nz: 0, u: 0, v: uv1))
+                verts.append(WorldVertex(px: 0,    py: y1, pz: k1+w1, nx: 1, ny: 0, nz: 0, u: 1, v: uv1))
             } else {
-                verts.append(WorldVertex(px: 0,    py: y0, pz: k0-w, nx: 1, ny: 0, nz: 0, u: 0, v: uv0))
-                verts.append(WorldVertex(px: 0,    py: y0, pz: k0+w, nx: 1, ny: 0, nz: 0, u: 1, v: uv0))
-                verts.append(WorldVertex(px: 0,    py: y1, pz: k1-w, nx: 1, ny: 0, nz: 0, u: 0, v: uv1))
-                verts.append(WorldVertex(px: 0,    py: y1, pz: k1+w, nx: 1, ny: 0, nz: 0, u: 1, v: uv1))
+                // 45° plane (kinks in both X and Z)
+                let k0x = k0 * 0.7071067811865476  // cos(π/4)
+                let k0z = k0 * 0.7071067811865476  // sin(π/4)
+                let k1x = k1 * 0.7071067811865476
+                let k1z = k1 * 0.7071067811865476
+                verts.append(WorldVertex(px: k0x-w0, py: y0, pz: k0z-w0, nx: 0.7071067811865476, ny: 0, nz: 0.7071067811865476, u: 0, v: uv0))
+                verts.append(WorldVertex(px: k0x+w0, py: y0, pz: k0z+w0, nx: 0.7071067811865476, ny: 0, nz: 0.7071067811865476, u: 1, v: uv0))
+                verts.append(WorldVertex(px: k1x-w1, py: y1, pz: k1z-w1, nx: 0.7071067811865476, ny: 0, nz: 0.7071067811865476, u: 0, v: uv1))
+                verts.append(WorldVertex(px: k1x+w1, py: y1, pz: k1z+w1, nx: 0.7071067811865476, ny: 0, nz: 0.7071067811865476, u: 1, v: uv1))
             }
+            
             // Front + back faces so bolt is visible from any camera angle
             idxs.append(contentsOf: [base, base+2, base+1,  base+1, base+2, base+3])
             idxs.append(contentsOf: [base, base+1, base+2,  base+1, base+3, base+2])
+        }
+    }
+
+    // Add secondary branching forks at fixed kink points
+    // Forks: 3 branching forks, each 3 segments long
+    let forkCount = 3
+    let forkStartPoints = [1, 3, 5]  // Fixed kink points to start forks from
+    
+    // Seeded xorshift for deterministic randomization
+    func xorshift32(_ seed: UInt32) -> UInt32 {
+        var x = seed
+        x ^= x >> 13
+        x ^= x << 17
+        x ^= x >> 5
+        return x
+    }
+    
+    for forkIdx in 0..<forkCount {
+        // Pick a start point from the available kink points
+        let startPoint = forkStartPoints[forkIdx]
+        let forkLength = 3  // 3 segments long
+        
+        // Create a fork that branches off from the main bolt
+        let forkY0 = ys[startPoint]
+        let forkY1 = forkY0 + 1.0
+        let forkY2 = forkY0 + 2.0
+        let forkY3 = forkY0 + 3.0
+        
+        // Use seeded randomization for fork direction and kink offsets
+        let seed = 0xBEEF + UInt32(forkIdx)
+        let rand1 = xorshift32(seed) & 0x7FFFFFFF
+        let rand2 = xorshift32(rand1) & 0x7FFFFFFF
+        
+        // Choose a random plane for this fork: 0=XY, 1=ZY, 2=45°
+        let planeChoice = (rand1 % 3)
+        
+        // Determine fork direction and kink offsets
+        let forkK0: Float
+        let forkK1: Float
+        let forkK2: Float
+        let forkK3: Float
+        
+        // Random offset within ±0.4 for each kink point
+        let offset0 = (Float(rand1 & 0xFFFF) / 65535.0) * 0.8 - 0.4
+        let offset1 = (Float(rand2 & 0xFFFF) / 65535.0) * 0.8 - 0.4
+        
+        if planeChoice == 0 {
+            // XY plane
+            forkK0 = ks[startPoint] + offset0
+            forkK1 = forkK0 + offset1
+            forkK2 = forkK1 + offset0
+            forkK3 = forkK2 + offset1
+        } else if planeChoice == 1 {
+            // ZY plane
+            forkK0 = ks[startPoint] + offset0
+            forkK1 = forkK0 + offset1
+            forkK2 = forkK1 + offset0
+            forkK3 = forkK2 + offset1
+        } else {
+            // 45° plane
+            forkK0 = ks[startPoint] + offset0
+            forkK1 = forkK0 + offset1
+            forkK2 = forkK1 + offset0
+            forkK3 = forkK2 + offset1
+        }
+        
+        // Forks are shorter and narrower than main bolt
+        let forkW0 = getWidth(forkY0) * 0.5
+        let forkW1 = getWidth(forkY1) * 0.5
+        let forkW2 = getWidth(forkY2) * 0.5
+        let forkW3: Float = 0.02  // Tip is very thin
+        
+        let base = UInt16(verts.count)
+        
+        // Create 3 segments for this fork
+        if planeChoice == 0 {
+            // XY plane
+            verts.append(WorldVertex(px: forkK0-forkW0, py: forkY0, pz: 0, nx: 0, ny: 0, nz: 1, u: 0, v: 0))
+            verts.append(WorldVertex(px: forkK0+forkW0, py: forkY0, pz: 0, nx: 0, ny: 0, nz: 1, u: 1, v: 0))
+            verts.append(WorldVertex(px: forkK1-forkW1, py: forkY1, pz: 0, nx: 0, ny: 0, nz: 1, u: 0, v: 1))
+            verts.append(WorldVertex(px: forkK1+forkW1, py: forkY1, pz: 0, nx: 0, ny: 0, nz: 1, u: 1, v: 1))
+            
+            // Segment 1
+            idxs.append(contentsOf: [base, base+2, base+1,  base+1, base+2, base+3])
+            idxs.append(contentsOf: [base, base+1, base+2,  base+1, base+3, base+2])
+            
+            // Second segment
+            verts.append(WorldVertex(px: forkK1-forkW1, py: forkY1, pz: 0, nx: 0, ny: 0, nz: 1, u: 0, v: 1))
+            verts.append(WorldVertex(px: forkK1+forkW1, py: forkY1, pz: 0, nx: 0, ny: 0, nz: 1, u: 1, v: 1))
+            verts.append(WorldVertex(px: forkK2-forkW2, py: forkY2, pz: 0, nx: 0, ny: 0, nz: 1, u: 0, v: 2))
+            verts.append(WorldVertex(px: forkK2+forkW2, py: forkY2, pz: 0, nx: 0, ny: 0, nz: 1, u: 1, v: 2))
+            
+            // Segment 2
+            let base2 = base + 4
+            idxs.append(contentsOf: [base2, base2+2, base2+1,  base2+1, base2+2, base2+3])
+            idxs.append(contentsOf: [base2, base2+1, base2+2,  base2+1, base2+3, base2+2])
+            
+            // Third segment
+            verts.append(WorldVertex(px: forkK2-forkW2, py: forkY2, pz: 0, nx: 0, ny: 0, nz: 1, u: 0, v: 2))
+            verts.append(WorldVertex(px: forkK2+forkW2, py: forkY2, pz: 0, nx: 0, ny: 0, nz: 1, u: 1, v: 2))
+            verts.append(WorldVertex(px: forkK3-forkW3, py: forkY3, pz: 0, nx: 0, ny: 0, nz: 1, u: 0, v: 3))
+            verts.append(WorldVertex(px: forkK3+forkW3, py: forkY3, pz: 0, nx: 0, ny: 0, nz: 1, u: 1, v: 3))
+            
+            // Segment 3
+            let base3 = base + 8
+            idxs.append(contentsOf: [base3, base3+2, base3+1,  base3+1, base3+2, base3+3])
+            idxs.append(contentsOf: [base3, base3+1, base3+2,  base3+1, base3+3, base3+2])
+            
+        } else if planeChoice == 1 {
+            // ZY plane
+            verts.append(WorldVertex(px: 0, py: forkY0, pz: forkK0-forkW0, nx: 1, ny: 0, nz: 0, u: 0, v: 0))
+            verts.append(WorldVertex(px: 0, py: forkY0, pz: forkK0+forkW0, nx: 1, ny: 0, nz: 0, u: 1, v: 0))
+            verts.append(WorldVertex(px: 0, py: forkY1, pz: forkK1-forkW1, nx: 1, ny: 0, nz: 0, u: 0, v: 1))
+            verts.append(WorldVertex(px: 0, py: forkY1, pz: forkK1+forkW1, nx: 1, ny: 0, nz: 0, u: 1, v: 1))
+            
+            // Segment 1
+            idxs.append(contentsOf: [base, base+2, base+1,  base+1, base+2, base+3])
+            idxs.append(contentsOf: [base, base+1, base+2,  base+1, base+3, base+2])
+            
+            // Second segment
+            verts.append(WorldVertex(px: 0, py: forkY1, pz: forkK1-forkW1, nx: 1, ny: 0, nz: 0, u: 0, v: 1))
+            verts.append(WorldVertex(px: 0, py: forkY1, pz: forkK1+forkW1, nx: 1, ny: 0, nz: 0, u: 1, v: 1))
+            verts.append(WorldVertex(px: 0, py: forkY2, pz: forkK2-forkW2, nx: 1, ny: 0, nz: 0, u: 0, v: 2))
+            verts.append(WorldVertex(px: 0, py: forkY2, pz: forkK2+forkW2, nx: 1, ny: 0, nz: 0, u: 1, v: 2))
+            
+            // Segment 2
+            let base2 = base + 4
+            idxs.append(contentsOf: [base2, base2+2, base2+1,  base2+1, base2+2, base2+3])
+            idxs.append(contentsOf: [base2, base2+1, base2+2,  base2+1, base2+3, base2+2])
+            
+            // Third segment
+            verts.append(WorldVertex(px: 0, py: forkY2, pz: forkK2-forkW2, nx: 1, ny: 0, nz: 0, u: 0, v: 2))
+            verts.append(WorldVertex(px: 0, py: forkY2, pz: forkK2+forkW2, nx: 1, ny: 0, nz: 0, u: 1, v: 2))
+            verts.append(WorldVertex(px: 0, py: forkY3, pz: forkK3-forkW3, nx: 1, ny: 0, nz: 0, u: 0, v: 3))
+            verts.append(WorldVertex(px: 0, py: forkY3, pz: forkK3+forkW3, nx: 1, ny: 0, nz: 0, u: 1, v: 3))
+            
+            // Segment 3
+            let base3 = base + 8
+            idxs.append(contentsOf: [base3, base3+2, base3+1,  base3+1, base3+2, base3+3])
+            idxs.append(contentsOf: [base3, base3+1, base3+2,  base3+1, base3+3, base3+2])
+            
+        } else {
+            // 45° plane
+            let k0x = forkK0 * 0.7071067811865476
+            let k0z = forkK0 * 0.7071067811865476
+            let k1x = forkK1 * 0.7071067811865476
+            let k1z = forkK1 * 0.7071067811865476
+            let k2x = forkK2 * 0.7071067811865476
+            let k2z = forkK2 * 0.7071067811865476
+            let k3x = forkK3 * 0.7071067811865476
+            let k3z = forkK3 * 0.7071067811865476
+            
+            verts.append(WorldVertex(px: k0x-forkW0, py: forkY0, pz: k0z-forkW0, nx: 0.7071067811865476, ny: 0, nz: 0.7071067811865476, u: 0, v: 0))
+            verts.append(WorldVertex(px: k0x+forkW0, py: forkY0, pz: k0z+forkW0, nx: 0.7071067811865476, ny: 0, nz: 0.7071067811865476, u: 1, v: 0))
+            verts.append(WorldVertex(px: k1x-forkW1, py: forkY1, pz: k1z-forkW1, nx: 0.7071067811865476, ny: 0, nz: 0.7071067811865476, u: 0, v: 1))
+            verts.append(WorldVertex(px: k1x+forkW1, py: forkY1, pz: k1z+forkW1, nx: 0.7071067811865476, ny: 0, nz: 0.7071067811865476, u: 1, v: 1))
+            
+            // Segment 1
+            idxs.append(contentsOf: [base, base+2, base+1,  base+1, base+2, base+3])
+            idxs.append(contentsOf: [base, base+1, base+2,  base+1, base+3, base+2])
+            
+            // Second segment
+            verts.append(WorldVertex(px: k1x-forkW1, py: forkY1, pz: k1z-forkW1, nx: 0.7071067811865476, ny: 0, nz: 0.7071067811865476, u: 0, v: 1))
+            verts.append(WorldVertex(px: k1x+forkW1, py: forkY1, pz: k1z+forkW1, nx: 0.7071067811865476, ny: 0, nz: 0.7071067811865476, u: 1, v: 1))
+            verts.append(WorldVertex(px: k2x-forkW2, py: forkY2, pz: k2z-forkW2, nx: 0.7071067811865476, ny: 0, nz: 0.7071067811865476, u: 0, v: 2))
+            verts.append(WorldVertex(px: k2x+forkW2, py: forkY2, pz: k2z+forkW2, nx: 0.7071067811865476, ny: 0, nz: 0.7071067811865476, u: 1, v: 2))
+            
+            // Segment 2
+            let base2 = base + 4
+            idxs.append(contentsOf: [base2, base2+2, base2+1,  base2+1, base2+2, base2+3])
+            idxs.append(contentsOf: [base2, base2+1, base2+2,  base2+1, base2+3, base2+2])
+            
+            // Third segment
+            verts.append(WorldVertex(px: k2x-forkW2, py: forkY2, pz: k2z-forkW2, nx: 0.7071067811865476, ny: 0, nz: 0.7071067811865476, u: 0, v: 2))
+            verts.append(WorldVertex(px: k2x+forkW2, py: forkY2, pz: k2z+forkW2, nx: 0.7071067811865476, ny: 0, nz: 0.7071067811865476, u: 1, v: 2))
+            verts.append(WorldVertex(px: k3x-forkW3, py: forkY3, pz: k3z-forkW3, nx: 0.7071067811865476, ny: 0, nz: 0.7071067811865476, u: 0, v: 3))
+            verts.append(WorldVertex(px: k3x+forkW3, py: forkY3, pz: k3z+forkW3, nx: 0.7071067811865476, ny: 0, nz: 0.7071067811865476, u: 1, v: 3))
+            
+            // Segment 3
+            let base3 = base + 8
+            idxs.append(contentsOf: [base3, base3+2, base3+1,  base3+1, base3+2, base3+3])
+            idxs.append(contentsOf: [base3, base3+1, base3+2,  base3+1, base3+3, base3+2])
         }
     }
 

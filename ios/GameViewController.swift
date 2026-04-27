@@ -197,196 +197,6 @@ let kDrawCallStride = 88    // sizeof(DrawCall) in Zig
 let kEmitterStride  = 104   // sizeof(GpuEmitter) in Zig
 let kUniformStride  = 160   // sizeof(FrameUniforms) in Zig
 
-// ── Zone-portal destination map (shown when the player walks into the gate) ──
-//    Shows three realm tiles. Forest = current playable zone. Desert / Island
-//    are placeholders that surface a "Coming Soon" notice on tap.
-private final class PortalMapView: UIView {
-    var onForest:  (() -> Void)?
-    var onComingSoon: ((String) -> Void)?
-
-    private let panel    = UIView()
-    private let titleLbl = UILabel()
-    private let forestTile  : ZoneTile
-    private let desertTile  : ZoneTile
-    private let islandTile  : ZoneTile
-    private let closeBtn = UIButton(type: .system)
-
-    private final class ZoneTile: UIControl {
-        let nameLbl   = UILabel()
-        let statusLbl = UILabel()
-        let iconLbl   = UILabel()      // simple SF symbol/emoji silhouette
-        private let bgGradient = CAGradientLayer()
-        private let frameGlow  = CAGradientLayer()
-
-        init(name: String, status: String, icon: String,
-             colorTop: UIColor, colorBottom: UIColor, available: Bool) {
-            super.init(frame: .zero)
-            layer.cornerRadius = 18
-            layer.masksToBounds = true
-            layer.borderWidth = available ? 2.5 : 1.0
-            layer.borderColor = available
-                ? UIColor(red: 1.0, green: 0.82, blue: 0.30, alpha: 1).cgColor
-                : UIColor(white: 1, alpha: 0.18).cgColor
-
-            bgGradient.colors = [colorTop.cgColor, colorBottom.cgColor]
-            bgGradient.startPoint = CGPoint(x: 0.5, y: 0)
-            bgGradient.endPoint   = CGPoint(x: 0.5, y: 1)
-            layer.addSublayer(bgGradient)
-
-            // Subtle inner glow gradient at top — gives the tile a horizon feel
-            frameGlow.colors = [
-                UIColor(white: 1, alpha: 0.18).cgColor,
-                UIColor(white: 1, alpha: 0.0).cgColor,
-            ]
-            frameGlow.startPoint = CGPoint(x: 0.5, y: 0)
-            frameGlow.endPoint   = CGPoint(x: 0.5, y: 0.7)
-            layer.addSublayer(frameGlow)
-
-            iconLbl.text = icon
-            iconLbl.font = .systemFont(ofSize: 64, weight: .regular)
-            iconLbl.textAlignment = .center
-            iconLbl.textColor = .white
-            iconLbl.layer.shadowColor   = UIColor.black.cgColor
-            iconLbl.layer.shadowOpacity = 0.7
-            iconLbl.layer.shadowRadius  = 6
-            iconLbl.layer.shadowOffset  = .zero
-            addSubview(iconLbl)
-
-            nameLbl.text = name
-            nameLbl.font = .systemFont(ofSize: 22, weight: .bold)
-            nameLbl.textColor = .white
-            nameLbl.textAlignment = .center
-            nameLbl.layer.shadowColor   = UIColor.black.cgColor
-            nameLbl.layer.shadowOpacity = 0.8
-            nameLbl.layer.shadowRadius  = 4
-            nameLbl.layer.shadowOffset  = .zero
-            addSubview(nameLbl)
-
-            statusLbl.text = status
-            statusLbl.font = .systemFont(ofSize: 14, weight: .semibold)
-            statusLbl.textColor = available
-                ? UIColor(red: 1.0, green: 0.85, blue: 0.40, alpha: 1)
-                : UIColor(white: 0.85, alpha: 1)
-            statusLbl.textAlignment = .center
-            addSubview(statusLbl)
-
-            // Tap feedback
-            addTarget(self, action: #selector(touchDown), for: .touchDown)
-            addTarget(self, action: #selector(touchUp),   for: [.touchUpInside, .touchUpOutside, .touchCancel])
-        }
-        required init?(coder: NSCoder) { fatalError() }
-
-        @objc private func touchDown() {
-            UIView.animate(withDuration: 0.08) { self.transform = CGAffineTransform(scaleX: 0.97, y: 0.97) }
-        }
-        @objc private func touchUp() {
-            UIView.animate(withDuration: 0.12) { self.transform = .identity }
-        }
-
-        override func layoutSubviews() {
-            super.layoutSubviews()
-            bgGradient.frame = bounds
-            frameGlow.frame  = bounds
-            iconLbl.frame    = CGRect(x: 0, y: bounds.height * 0.18, width: bounds.width, height: 80)
-            nameLbl.frame    = CGRect(x: 0, y: bounds.height - 90, width: bounds.width, height: 28)
-            statusLbl.frame  = CGRect(x: 0, y: bounds.height - 56, width: bounds.width, height: 20)
-        }
-    }
-
-    override init(frame: CGRect) {
-        forestTile = ZoneTile(
-            name: "Whispering Forest",
-            status: "Available — Lvl 1+",
-            icon: "🌲",
-            colorTop:    UIColor(red: 0.10, green: 0.32, blue: 0.14, alpha: 1),
-            colorBottom: UIColor(red: 0.04, green: 0.12, blue: 0.06, alpha: 1),
-            available: true)
-        desertTile = ZoneTile(
-            name: "Sunburnt Wastes",
-            status: "Coming Soon",
-            icon: "🏜",
-            colorTop:    UIColor(red: 0.85, green: 0.55, blue: 0.20, alpha: 1),
-            colorBottom: UIColor(red: 0.45, green: 0.22, blue: 0.05, alpha: 1),
-            available: false)
-        islandTile = ZoneTile(
-            name: "Drifting Isles",
-            status: "Coming Soon",
-            icon: "🏝",
-            colorTop:    UIColor(red: 0.20, green: 0.55, blue: 0.85, alpha: 1),
-            colorBottom: UIColor(red: 0.50, green: 0.40, blue: 0.20, alpha: 1),
-            available: false)
-        super.init(frame: frame)
-
-        backgroundColor = UIColor(white: 0, alpha: 0.78)
-        isUserInteractionEnabled = true
-
-        panel.backgroundColor   = UIColor(white: 0.05, alpha: 0.90)
-        panel.layer.cornerRadius = 22
-        panel.layer.borderWidth  = 1
-        panel.layer.borderColor  = UIColor.white.withAlphaComponent(0.20).cgColor
-        addSubview(panel)
-
-        titleLbl.text = "Choose Your Destination"
-        titleLbl.font = .systemFont(ofSize: 26, weight: .heavy)
-        titleLbl.textColor = .white
-        titleLbl.textAlignment = .center
-        titleLbl.layer.shadowColor   = UIColor.black.cgColor
-        titleLbl.layer.shadowOpacity = 0.7
-        titleLbl.layer.shadowRadius  = 4
-        titleLbl.layer.shadowOffset  = .zero
-        panel.addSubview(titleLbl)
-
-        for tile in [forestTile, desertTile, islandTile] { panel.addSubview(tile) }
-        forestTile.addTarget(self, action: #selector(tapForest), for: .touchUpInside)
-        desertTile.addTarget(self, action: #selector(tapDesert), for: .touchUpInside)
-        islandTile.addTarget(self, action: #selector(tapIsland), for: .touchUpInside)
-
-        closeBtn.setTitle("✕  Close", for: .normal)
-        closeBtn.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
-        closeBtn.tintColor = UIColor(white: 0.85, alpha: 1)
-        closeBtn.addTarget(self, action: #selector(tapClose), for: .touchUpInside)
-        panel.addSubview(closeBtn)
-    }
-    required init?(coder: NSCoder) { fatalError() }
-
-    @objc private func tapForest()  { onForest?() }
-    @objc private func tapDesert()  { onComingSoon?("Sunburnt Wastes") }
-    @objc private func tapIsland()  { onComingSoon?("Drifting Isles") }
-    @objc private func tapClose()   { onForest?() }   // dismiss = same as continue in current zone
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        let isPad = traitCollection.horizontalSizeClass == .regular
-        let panelW = isPad ? min(bounds.width - 80, 920) : min(bounds.width - 32, 380)
-        let panelH = isPad ? CGFloat(560) : CGFloat(620)
-        panel.frame = CGRect(x: (bounds.width - panelW) / 2,
-                             y: (bounds.height - panelH) / 2,
-                             width: panelW, height: panelH)
-
-        titleLbl.frame = CGRect(x: 0, y: 24, width: panelW, height: 36)
-
-        let pad: CGFloat = 18
-        let bottomPad: CGFloat = 60   // room for close button
-        let topY = titleLbl.frame.maxY + 18
-        let availableH = panelH - topY - bottomPad
-        // Tablet: 3 horizontal tiles. Phone: 3 vertical stacked tiles.
-        if isPad {
-            let tileW = (panelW - pad * 4) / 3
-            let tileH = availableH
-            for (i, tile) in [forestTile, desertTile, islandTile].enumerated() {
-                tile.frame = CGRect(x: pad + CGFloat(i) * (tileW + pad), y: topY, width: tileW, height: tileH)
-            }
-        } else {
-            let tileH = (availableH - pad * 2) / 3
-            for (i, tile) in [forestTile, desertTile, islandTile].enumerated() {
-                tile.frame = CGRect(x: pad, y: topY + CGFloat(i) * (tileH + pad),
-                                    width: panelW - pad * 2, height: tileH)
-            }
-        }
-
-        closeBtn.frame = CGRect(x: 0, y: panelH - 44, width: panelW, height: 32)
-    }
-}
 
 // ── Inventory grid (placeholder slots for now) ──────────────────────────────
 private final class InventoryView: UIView {
@@ -441,8 +251,81 @@ private final class InventoryView: UIView {
     }
 }
 
+// ── Skill bonuses — 64-byte byte-exact mirror of Zig's SkillBonuses struct.
+// Layout MUST match src/game/skill_bonuses.zig in field order.
+private struct SkillBonuses {
+    var damage_flat:      Float = 0
+    var damage_pct:       Float = 0
+    var spell_damage_pct: Float = 0
+    var cast_speed_pct:   Float = 0
+    var crit_chance_pct:  Float = 0
+    var crit_damage_pct:  Float = 0
+    var hp_flat:          Float = 0
+    var hp_pct:           Float = 0
+    var armour_pct:       Float = 0
+    var dmg_reduce_pct:   Float = 0
+    var move_speed_pct:   Float = 0
+    var mana_flat:        Float = 0
+    var mana_pct:         Float = 0
+    var mana_regen_pct:   Float = 0
+    var cooldown_pct:     Float = 0
+    var xp_gain_pct:      Float = 0
+
+    // Map a single allocated node's display text to stat increments.
+    // Keystones are matched by their flavor name; all other nodes are
+    // exact-string matched to keep parsing robust against future text changes.
+    mutating func add(nodeText: String) {
+        let key = nodeText.replacingOccurrences(of: "\n", with: " ")
+        switch key {
+        // Offence — flat
+        case "+5 Damage":         damage_flat += 5
+        case "+10 Damage":        damage_flat += 10
+        // Offence — percent
+        case "+15% Damage":       damage_pct += 0.15
+        case "+20% Damage":       damage_pct += 0.20
+        case "+25% Spell Damage": spell_damage_pct += 0.25
+        case "+10% Cast Speed":   cast_speed_pct += 0.10
+        case "+15% Crit Chance":  crit_chance_pct += 0.15
+        case "+25% Crit Damage":  crit_damage_pct += 0.25
+        // Defence
+        case "+30 HP":            hp_flat += 30
+        case "+50 HP":            hp_flat += 50
+        case "+10% HP":           hp_pct += 0.10
+        case "+15% Armour":       armour_pct += 0.15
+        case "+8% Dmg Reduce":    dmg_reduce_pct += 0.08
+        case "+15% Move Speed":   move_speed_pct += 0.15
+        // Utility
+        case "+20 Mana":          mana_flat += 20
+        case "+10% Mana":         mana_pct += 0.10
+        case "+15% Mana Regen":   mana_regen_pct += 0.15
+        case "+10% Cooldowns":    cooldown_pct += 0.10
+        case "+15% XP Gain":      xp_gain_pct += 0.15
+        // Keystones — strong specialised stats
+        case "Wizard's Insight":  spell_damage_pct += 0.30
+        case "Forest Pact":       hp_flat += 100
+        case "Ember Heart":       crit_chance_pct += 0.25
+        case "Storm Caller":      cooldown_pct += 0.20
+        case "Stone Resolve":     dmg_reduce_pct += 0.20
+        case "Bloodless":         damage_pct += 0.25
+        case "Soulbinder":        mana_flat += 100; mana_regen_pct += 0.25
+        case "Wraith Form":       move_speed_pct += 0.25
+        case "Soul Core":         break  // free center, no bonus
+        default:                  break  // unknown text — ignore safely
+        }
+    }
+
+    func push() {
+        assert(MemoryLayout<SkillBonuses>.size == 64,
+               "SkillBonuses Swift layout drifted from Zig's 64-byte struct")
+        var copy = self
+        withUnsafeBytes(of: &copy) { raw in
+            game_set_skill_bonuses(raw.baseAddress!.assumingMemoryBound(to: UInt8.self))
+        }
+    }
+}
+
 // ── Skill tree — radial node layout with allocatable bonuses ────────────────
-private final class SkillTreeView: UIView {
+private final class SkillTreeView: UIView, UIScrollViewDelegate {
 
     struct Node {
         let id: Int
@@ -456,11 +339,28 @@ private final class SkillTreeView: UIView {
     }
 
     private(set) var nodes: [Node] = []
+
+    fileprivate func computeBonuses() -> SkillBonuses {
+        var b = SkillBonuses()
+        for n in nodes where n.allocated { b.add(nodeText: n.bonus) }
+        return b
+    }
+
     private var nodeViews: [UIButton] = []
     private let connectionLayer = CAShapeLayer()
     private let backgroundGradient = CAGradientLayer()
     private let crystalChip = UIView()
     private let crystalLabel = UILabel()
+
+    // Tree is hosted inside a scroll view so the player can pan + pinch-zoom.
+    // Outer ring of keystones is at radius 325 (+ node size ~64), so the
+    // content view needs enough headroom to fit them.
+    private let scrollView   = UIScrollView()
+    private let treeContent  = UIView()
+    private static let contentSize: CGFloat = 800   // 800x800 canvas
+    private static let contentCenter: CGFloat = SkillTreeView.contentSize / 2
+    private static let initialZoom: CGFloat = 0.65  // start zoomed out
+
     var playerLevel: Int = 1 { didSet { refreshCrystalDisplay() } }
     var onAllocated: (() -> Void)?
 
@@ -486,14 +386,32 @@ private final class SkillTreeView: UIView {
         backgroundGradient.endPoint   = CGPoint(x: 0.5, y: 1)
         layer.addSublayer(backgroundGradient)
 
+        // Scroll view hosts the zoomable/pannable tree.
+        scrollView.delegate = self
+        scrollView.minimumZoomScale = 0.4
+        scrollView.maximumZoomScale = 1.5
+        scrollView.bouncesZoom = true
+        scrollView.showsHorizontalScrollIndicator = false
+        scrollView.showsVerticalScrollIndicator   = false
+        scrollView.contentSize = CGSize(width: Self.contentSize, height: Self.contentSize)
+        scrollView.backgroundColor = .clear
+        addSubview(scrollView)
+
+        treeContent.frame = CGRect(x: 0, y: 0, width: Self.contentSize, height: Self.contentSize)
+        treeContent.backgroundColor = .clear
+        scrollView.addSubview(treeContent)
+
+        // Connection layer is now a sublayer of the zoomable content so its
+        // strokes scale and pan with the nodes.
         connectionLayer.fillColor = UIColor.clear.cgColor
         connectionLayer.lineWidth = 2
-        layer.addSublayer(connectionLayer)
+        connectionLayer.frame = treeContent.bounds
+        treeContent.layer.addSublayer(connectionLayer)
 
         nodes = Self.generateTree()
         nodes[0].allocated = true   // center starts allocated for free
 
-        // Build node buttons
+        // Build node buttons inside the zoomable content view.
         for (i, n) in nodes.enumerated() {
             let btn = UIButton(type: .custom)
             btn.tag = i
@@ -508,7 +426,7 @@ private final class SkillTreeView: UIView {
             btn.layer.shadowOffset  = .zero
             btn.addTarget(self, action: #selector(nodeTapped(_:)), for: .touchUpInside)
             nodeViews.append(btn)
-            addSubview(btn)
+            treeContent.addSubview(btn)
         }
 
         // Crystal chip (top-left of the tree panel) — shows available skill crystals
@@ -686,12 +604,12 @@ private final class SkillTreeView: UIView {
         let dim  = UIColor(white: 1, alpha: 0.10).cgColor
         let activePath = UIBezierPath()
         let dimPath    = UIBezierPath()
-        let cx = bounds.width / 2, cy = bounds.height / 2
+        let cc = Self.contentCenter
         for n in nodes {
             for c in n.connections where c > n.id {
                 let other = nodes[c]
-                let p1 = CGPoint(x: cx + n.position.x,     y: cy + n.position.y)
-                let p2 = CGPoint(x: cx + other.position.x, y: cy + other.position.y)
+                let p1 = CGPoint(x: cc + n.position.x,     y: cc + n.position.y)
+                let p2 = CGPoint(x: cc + other.position.x, y: cc + other.position.y)
                 if n.allocated && other.allocated {
                     activePath.move(to: p1); activePath.addLine(to: p2)
                 } else {
@@ -699,8 +617,8 @@ private final class SkillTreeView: UIView {
                 }
             }
         }
-        // Dim layer
-        connectionLayer.frame = bounds
+        // Connection layer lives inside treeContent; sized to its bounds.
+        connectionLayer.frame = treeContent.bounds
         connectionLayer.path = nil
         // Replace with two CAShapeLayers — easier than re-drawing
         connectionLayer.sublayers?.forEach { $0.removeFromSuperlayer() }
@@ -747,26 +665,48 @@ private final class SkillTreeView: UIView {
         crystalLabel.text = "💎  \(crystalsAvailable) Skill Crystal\(crystalsAvailable == 1 ? "" : "s")"
     }
 
+    private var didCenterTree = false
+
     override func layoutSubviews() {
         super.layoutSubviews()
         backgroundGradient.frame = bounds
-        connectionLayer.frame    = bounds
-        let cx = bounds.width / 2, cy = bounds.height / 2
+        scrollView.frame = bounds
+        // Position nodes in treeContent coords (centered around contentCenter).
+        let cc = Self.contentCenter
+        connectionLayer.frame = treeContent.bounds
         for (i, n) in nodes.enumerated() {
             let btn = nodeViews[i]
             let size: CGFloat = n.isKeystone ? 64 : (n.ring == 0 ? 56 : 50)
-            btn.frame = CGRect(x: cx + n.position.x - size / 2,
-                               y: cy + n.position.y - size / 2,
+            btn.frame = CGRect(x: cc + n.position.x - size / 2,
+                               y: cc + n.position.y - size / 2,
                                width: size, height: size)
             btn.layer.cornerRadius = size / 2
         }
-        // Crystal chip top-left of tree
+        // Crystal chip top-left of self (does NOT zoom/pan with the tree).
         let chipW: CGFloat = 175, chipH: CGFloat = 30
         crystalChip.frame  = CGRect(x: 16, y: 16, width: chipW, height: chipH)
         crystalLabel.frame = crystalChip.frame
-        // Re-issue connection paths (depend on bounds)
+        // Re-issue connection paths against treeContent bounds.
         refreshAllVisuals()
+
+        // First-time zoom-out + center the tree on the visible area.
+        if !didCenterTree, bounds.width > 0, bounds.height > 0 {
+            didCenterTree = true
+            scrollView.zoomScale = Self.initialZoom
+            recenterContent()
+        }
     }
+
+    private func recenterContent() {
+        let scaledW = scrollView.contentSize.width * scrollView.zoomScale
+        let scaledH = scrollView.contentSize.height * scrollView.zoomScale
+        let offX = max(0, (scaledW - bounds.width)  / 2)
+        let offY = max(0, (scaledH - bounds.height) / 2)
+        scrollView.contentOffset = CGPoint(x: offX, y: offY)
+    }
+
+    // MARK: UIScrollViewDelegate
+    func viewForZooming(in scrollView: UIScrollView) -> UIView? { treeContent }
 }
 
 // ── Full-screen game menu — Inventory / Skills tabs ────────────────────────
@@ -788,13 +728,12 @@ private final class GameMenuOverlay: UIView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        backgroundColor = UIColor(white: 0, alpha: 0.78)
+        backgroundColor = UIColor(white: 0, alpha: 0.96)
         isUserInteractionEnabled = true
 
-        panel.backgroundColor = UIColor(white: 0.04, alpha: 0.96)
-        panel.layer.cornerRadius = 18
-        panel.layer.borderWidth  = 1
-        panel.layer.borderColor  = UIColor.white.withAlphaComponent(0.20).cgColor
+        // Full-screen panel — no border or rounded corners since it covers
+        // the whole view.
+        panel.backgroundColor = UIColor(white: 0.04, alpha: 1.0)
         addSubview(panel)
 
         titleLbl.text = "Character"
@@ -815,7 +754,6 @@ private final class GameMenuOverlay: UIView {
         underline.layer.cornerRadius = 1.5
         panel.addSubview(underline)
 
-        contentArea.layer.cornerRadius = 12
         contentArea.layer.masksToBounds = true
         contentArea.backgroundColor = UIColor(white: 0.02, alpha: 1)
         panel.addSubview(contentArea)
@@ -851,33 +789,36 @@ private final class GameMenuOverlay: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let isPad   = traitCollection.horizontalSizeClass == .regular
-        let panelW  = isPad ? min(bounds.width - 60, 1100) : min(bounds.width - 16, 480)
-        let panelH  = min(bounds.height - 40, isPad ? 820 : 720)
-        panel.frame = CGRect(x: (bounds.width - panelW) / 2,
-                             y: (bounds.height - panelH) / 2,
-                             width: panelW, height: panelH)
+        // Panel = full screen.
+        panel.frame = bounds
+        let panelW = bounds.width
+        let panelH = bounds.height
 
-        titleLbl.frame = CGRect(x: 0, y: 16, width: panelW, height: 30)
+        // Honor top safe area on iPhones with notches/Dynamic Island.
+        let safeTop = safeAreaInsets.top
+        let safeBot = safeAreaInsets.bottom
+
+        titleLbl.frame = CGRect(x: 0, y: safeTop + 12, width: panelW, height: 30)
+
         // Tab buttons centered side-by-side
-        let tabW: CGFloat = 130
-        let tabH: CGFloat = 36
-        let tabsY = titleLbl.frame.maxY + 8
-        let totalTabsW = tabW * 2 + 16
+        let tabW: CGFloat = 140
+        let tabH: CGFloat = 40
+        let tabsY = titleLbl.frame.maxY + 10
+        let totalTabsW = tabW * 2 + 20
         let tabsX = (panelW - totalTabsW) / 2
         invTab.frame   = CGRect(x: tabsX,                 y: tabsY, width: tabW, height: tabH)
-        skillTab.frame = CGRect(x: tabsX + tabW + 16,     y: tabsY, width: tabW, height: tabH)
+        skillTab.frame = CGRect(x: tabsX + tabW + 20,     y: tabsY, width: tabW, height: tabH)
         layoutTabs()
 
-        // Close button — pinned bottom-right of panel
-        closeBtn.frame = CGRect(x: panelW - 110, y: panelH - 38, width: 96, height: 28)
+        // Close button — top-right, above the tab row so it's reachable.
+        closeBtn.frame = CGRect(x: panelW - 80, y: safeTop + 8, width: 64, height: 36)
 
-        // Content area fills the rest
-        let contentY = invTab.frame.maxY + 10
-        contentArea.frame = CGRect(x: 12,
+        // Content area takes the entire remaining canvas.
+        let contentY = invTab.frame.maxY + 12
+        contentArea.frame = CGRect(x: 0,
                                     y: contentY,
-                                    width: panelW - 24,
-                                    height: panelH - contentY - 48)
+                                    width: panelW,
+                                    height: panelH - contentY - safeBot - 8)
 
         inventory.frame = contentArea.bounds
         skillTree.frame = contentArea.bounds
@@ -1062,6 +1003,9 @@ class GameViewController: UIViewController, MTKViewDelegate {
 
         // Init Zig game state
         game_init()
+
+        // Push initial (zero) bonuses so Zig has a clean state from frame 1.
+        SkillBonuses().push()
     }
 
     override func viewDidLayoutSubviews() {
@@ -1511,6 +1455,9 @@ class GameViewController: UIViewController, MTKViewDelegate {
         menuOverlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         menuOverlay.isHidden = true
         menuOverlay.onClose = { [weak self] in self?.dismissMenu() }
+        menuOverlay.skillTree.onAllocated = { [weak self] in
+            self?.menuOverlay.skillTree.computeBonuses().push()
+        }
         view.addSubview(menuOverlay)
     }
 

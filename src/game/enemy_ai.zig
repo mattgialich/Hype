@@ -16,6 +16,10 @@ const enemy_config = @import("enemy_config.zig");
 
 const MAX_E = @import("entity.zig").MAX_ENTITIES;
 
+// Multiplier applied to all melee damage dealt to the player. Set by main.zig
+// from player.bonuses (armour + dmg_reduce) when skill bonuses change.
+pub var player_dmg_taken_mult: f32 = 1.0;
+
 pub const PATROL  : u8 = 0;
 pub const ALERT   : u8 = 1;
 pub const CHASE   : u8 = 2;
@@ -144,7 +148,7 @@ pub const EnemyAI = struct {
                 } else if (dsq < MELEE_R * MELEE_R) {
                     // Melee hit — deal config damage to player once per stagger
                     if (enemy_config.get_by_mesh(world.mesh_id[id])) |cfg| {
-                        world.hp[player_id] -= cfg.damage;
+                        world.hp[player_id] -= cfg.damage * player_dmg_taken_mult;
                     }
                     world.vel[id]  = Vec3.zero;
                     self.state[id] = ALERT;
@@ -243,7 +247,7 @@ pub const EnemyAI = struct {
                     world.vel[id]  = Vec3.zero;
                 } else if (dsq < MELEE_R * MELEE_R) {
                     if (enemy_config.get_by_mesh(world.mesh_id[id])) |cfg| {
-                        world.hp[player_id] -= cfg.damage;
+                        world.hp[player_id] -= cfg.damage * player_dmg_taken_mult;
                     }
                     world.vel[id]  = Vec3.zero;
                     self.state[id] = ALERT;
@@ -333,7 +337,7 @@ pub const EnemyAI = struct {
                     world.vel[id]  = Vec3.zero;
                 } else if (dsq < MELEE_R * MELEE_R) {
                     if (enemy_config.get_by_mesh(world.mesh_id[id])) |cfg| {
-                        world.hp[player_id] -= cfg.damage;
+                        world.hp[player_id] -= cfg.damage * player_dmg_taken_mult;
                     }
                     world.vel[id]  = Vec3.zero;
                     self.state[id] = ALERT;
@@ -425,7 +429,7 @@ pub const EnemyAI = struct {
                     world.vel[id]  = Vec3.zero;
                 } else if (dsq < MELEE_R * MELEE_R) {
                     if (enemy_config.get_by_mesh(world.mesh_id[id])) |cfg| {
-                        world.hp[player_id] -= cfg.damage;
+                        world.hp[player_id] -= cfg.damage * player_dmg_taken_mult;
                     }
                     world.vel[id]  = Vec3.zero;
                     self.state[id] = ALERT;

@@ -42,3 +42,7 @@ void game_get_enemy_labels(uint8_t* buf, uint32_t* out_count);
 // Returns 1 if the player is within ~4.5 m of the zone portal — Swift polls this
 // each frame to decide when to surface the destination-map UI.
 uint32_t game_player_at_portal(void);
+
+// Push parsed skill-tree bonuses to Zig. buf must point to a 64-byte
+// SkillBonuses struct: 16 × float in declaration order from skill_bonuses.zig.
+void game_set_skill_bonuses(const uint8_t* buf);

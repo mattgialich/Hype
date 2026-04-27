@@ -9,8 +9,10 @@ const Player       = @import("game/player.zig").Player;
 const Renderer     = @import("renderer/metal.zig").Renderer;
 const Particles    = @import("renderer/particles.zig");
 const FX           = @import("game/entity.zig").FX;
-const EnemyAI      = @import("game/enemy_ai.zig").EnemyAI;
+const enemy_ai_mod = @import("game/enemy_ai.zig");
+const EnemyAI      = enemy_ai_mod.EnemyAI;
 const enemy_config = @import("game/enemy_config.zig");
+const SkillBonuses = @import("game/skill_bonuses.zig").SkillBonuses;
 
 // ── Global game state (static, no allocator needed for core loop) ────────────
 
@@ -579,6 +581,19 @@ export fn game_get_player_stats(
 // Returns current player level (1-based)
 export fn game_get_player_level() u32 {
     return player.level;
+}
+
+// Swift pushes the parsed total of all allocated skill-tree bonuses here.
+// Layout: 64-byte SkillBonuses struct (16 × f32). See skill_bonuses.zig.
+export fn game_set_skill_bonuses(buf: [*]const u8) void {
+    if (!inited) return;
+    var b: SkillBonuses = .{};
+    const dst = std.mem.asBytes(&b);
+    @memcpy(dst, buf[0..@sizeOf(SkillBonuses)]);
+    player.bonuses = b;
+    player.apply_bonuses(&world);
+    enemy_ai_mod.player_dmg_taken_mult =
+        @max(0.1, 1.0 - b.armour_pct - b.dmg_reduce_pct);
 }
 
 // Enemy label struct: 16 bytes per entry

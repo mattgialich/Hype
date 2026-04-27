@@ -407,11 +407,39 @@ fragment float4 frag_world_forward(
 
     // Lightning bolt: pure emissive, rapid flicker, early return (no normal lighting)
     if (mesh_frag == 7u) {
-        float flicker = 0.5 + 0.5 * sin(frame.time * 40.0 + in.world_pos.y * 1.5);
-        float3 core  = float3(0.80, 0.90, 1.00);
-        float3 glow  = float3(0.45, 0.70, 1.00) * flicker * 5.5
-                     + float3(0.25, 0.45, 1.00) * (1.0 - flicker) * 2.8;
-        return float4(core + glow, 1.0);
+        // Fast flicker for crackling effect
+        float fastFlicker = sin(frame.time * 60.0 + in.world_pos.y * 10.0);
+        float slowFlicker = sin(frame.time * 12.0);
+        float flicker = saturate(fastFlicker * slowFlicker * 0.5 + 0.5);
+        // Clamp minimum flicker to 0.55 to ensure bolt is always visible
+        flicker = max(flicker, 0.55);
+        
+        // Vertical banding for noisy detail
+        float banding = sin(in.world_pos.y * 20.0) * 0.2 + 0.8;
+        
+        // Core: white hot center with subtle magenta tint under peak flicker
+        float coreMask = smoothstep(0.35, 0.15, abs(in.uv.x - 0.5));
+        float flickerPeak = step(0.85, flicker);
+        float3 core = float3(6.0, 6.0, 6.0) * coreMask;
+        core = core - float3(0.0, 0.6, 0.0) * flickerPeak;  // magenta tint during peak
+        
+        // Edge: blue plasma
+        float edgeMask = smoothstep(0.20, 0.50, abs(in.uv.x - 0.5));
+        float3 edge = float3(0.25, 0.45, 1.00) * (1.0 - edgeMask) * 2.8;
+        
+        // Sparkle effect on edges
+        float sparkHash = hash21(float2(in.world_pos.y * 10.0, frame.time * 5.0));
+        float spark = step(0.96, sparkHash) * 0.8;
+        float3 sparkCol = float3(0.5, 1.0, 1.0) * spark * 6.0;  // stronger flashes
+        
+        // Vertical discharge pulse
+        float dischargePos = fract(frame.time * 1.8);
+        float dischargeMask = smoothstep(0.04, 0.0, abs(in.uv.y - dischargePos));
+        float3 discharge = float3(2.0, 2.0, 2.0) * dischargeMask;
+        
+        // Combine all elements
+        float3 color = core + edge + sparkCol + discharge;
+        return float4(color * flicker * banding, 1.0);
     }
 
     // Trunk geometry: u in [10, 20) is a bark marker; int(u - 10) = trunk index 0..2
@@ -669,13 +697,53 @@ fragment float4 frag_world_forward(
 
     // Crystal Cluster — full mesh is emissive crystal, early-return.
     if (mesh_frag == 18u) {
-        // Slow color cycle plus subtle vertical-position glow gradient
-        float t   = saturate(in.object_pos.y / 1.3);
-        float pulse = 0.65 + 0.35 * sin(frame.time * 1.6 + in.object_pos.y * 3.0);
-        float3 colA = float3(0.45, 0.25, 1.40);   // deep violet
-        float3 colB = float3(0.30, 0.70, 1.30);   // cyan
-        float3 col  = mix(colA, colB, t);
-        return float4(col * pulse * 1.8 + float3(0.18, 0.10, 0.45), 1.0);
+        // Hash cluster placement for hue variation (quantized to avoid vertex discontinuity)
+        float2 clusterPos = floor(in.world_pos.xz * 0.5);
+        float clusterHash = hash21(clusterPos);
+        float hueIndex = floor(clusterHash * 6.0);
+        
+        // Select hue family (violet, cyan, magenta, mint, amber, rose)
+        float3 col;
+        if (hueIndex < 1.0) col = float3(0.45, 0.25, 1.40);   // deep violet
+        else if (hueIndex < 2.0) col = float3(0.30, 0.70, 1.30);   // cyan
+        else if (hueIndex < 3.0) col = float3(1.30, 0.30, 1.50);   // magenta
+        else if (hueIndex < 4.0) col = float3(0.30, 1.00, 0.80);   // mint
+        else if (hueIndex < 5.0) col = float3(1.20, 0.70, 0.20);   // amber
+        else col = float3(1.40, 0.40, 0.60);   // rose
+        
+        // Add intra-cluster variation
+        float intraHash = hash21(in.object_pos.xz);
+        col *= 0.9 + 0.2 * intraHash;
+        
+        // Faceted shading with 3-tone faceting
+        float3 lightDir = normalize(float3(0.4, 1.0, 0.25));
+        float3 viewDir = normalize(float3(0.0, 0.4, 1.0));
+        float3 N = normalize(in.normal);
+        
+        // 3-tone faceted lighting: shadow / mid / highlight
+        float lightDot = dot(N, lightDir);
+        float facet = 0.45 + 0.30 * step(0.0, lightDot) + 0.30 * step(0.55, lightDot);
+        col *= facet;
+        
+        // Rim highlight
+        float rim = 1.0 - saturate(dot(N, viewDir));
+        rim = pow(rim, 3.0);
+        col += float3(0.8, 1.0, 1.2) * rim * 0.8;
+        
+        // Inner-core glow (when normal points upward)
+        float upness = dot(N, float3(0, 1, 0));
+        col += float3(0.3, 0.4, 0.5) * upness * 0.3;
+        
+        // Pulse with cluster-specific phase offset
+        float pulse = 0.65 + 0.35 * sin(frame.time * 1.6 + clusterHash * 6.28);
+        
+        // Tiny sparkle effect
+        float sparkleHash = hash21(in.object_pos.xz + float2(frame.time * 0.3, 0.0));
+        float sparkle = step(0.95, sparkleHash);
+        col += float3(1.5, 1.5, 1.5) * sparkle * 0.8;
+        
+        // Final emissive color (keep base color stable, add pulsing shimmer)
+        return float4(col * pulse * 2.0, 1.0);
     }
 
     // Bonfire — flame emissive (uBase=50), logs use bark above, stones use default
