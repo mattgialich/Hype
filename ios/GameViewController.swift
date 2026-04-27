@@ -191,7 +191,7 @@ private class StatBarView: UIView {
 }
 
 // Particle + draw buffer sizes — must match Zig constants
-let kMaxDrawCalls   = 2048
+let kMaxDrawCalls   = 4096
 let kMaxEmitters    = 256
 let kDrawCallStride = 88    // sizeof(DrawCall) in Zig
 let kEmitterStride  = 104   // sizeof(GpuEmitter) in Zig
@@ -851,8 +851,8 @@ class GameViewController: UIViewController, MTKViewDelegate {
         // ── 10 new asset meshes ─────────────────────────────────────────
         let (scv, sci, scc) = makeStoneCircle(device: device)
         stoneCircleVBuf = scv;  stoneCircleIBuf = sci;  stoneCircleIndexCount = scc
-        let (flv, fli, flc) = makeFallenLog(device: device)
-        fallenLogVBuf = flv;    fallenLogIBuf = fli;    fallenLogIndexCount = flc
+        let (logv, logi, logc) = makeFallenLog(device: device)
+        fallenLogVBuf = logv;   fallenLogIBuf = logi;   fallenLogIndexCount = logc
         let (tsv, tsi, tsc) = makeTreeStump(device: device)
         treeStumpVBuf = tsv;    treeStumpIBuf = tsi;    treeStumpIndexCount = tsc
         let (crv, cri, crc) = makeCrystalCluster(device: device)
