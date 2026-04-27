@@ -451,7 +451,7 @@ private final class SkillTreeView: UIView {
         let bonus: String
         let bonusColor: UIColor  // category tint (red=offence, green=defence, blue=mana, etc.)
         let isKeystone: Bool     // outer ring nodes — bigger circle, fancier text
-        let connections: [Int]
+        var connections: [Int]
         var allocated: Bool
     }
 
