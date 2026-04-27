@@ -219,10 +219,10 @@ fragment float4 frag_world_forward(
         // produce a richly winding line; the bell-curve envelope pinches it
         // to x=0 at both endpoints so player and gate are always on-axis.
         float pz         = wxz.y;
-        float PATH_LEN   = 180.0;
+        float PATH_LEN   = 220.0;
         float t_along    = saturate(-pz / PATH_LEN);                      // 0 at start, 1 at portal
         float envelope   = 4.0 * t_along * (1.0 - t_along);               // bell curve, 0 at endpoints
-        float center_x   = envelope * (16.0 * sin(pz * 0.05) + 6.0 * cos(pz * 0.08));
+        float center_x   = envelope * (20.0 * sin(pz * 0.045) + 8.0 * cos(pz * 0.075));
         float across     = abs(wxz.x - center_x);
 
         // Width: wide at endpoints (4.7m radius), narrow in the middle (2.6m radius).
@@ -572,6 +572,99 @@ fragment float4 frag_world_forward(
         // Heavier moss — these stones have stood for ages
         float mossBias = smoothstep(0.45, 0.18, fbm);
         albedo = mix(albedo, float3(0.18, 0.30, 0.16), mossBias * 0.8);
+    }
+
+    // ═══ NEW ASSETS (mesh_id 15..24) ═══════════════════════════════════════════
+
+    // Stone Circle — same ancient-stone treatment as monolith
+    if (mesh_frag == 15u) {
+        float fbm15 = fbm3(in.world_pos * 1.2);
+        float n15   = valueNoise3(in.world_pos * 9.0);
+        albedo = in.color.rgb * (0.78 + 0.30 * fbm15);
+        albedo *= (0.92 + 0.12 * n15);
+        float moss15 = smoothstep(0.42, 0.15, fbm15);
+        albedo = mix(albedo, float3(0.18, 0.32, 0.16), moss15 * 0.85);
+    }
+
+    // (mesh_id 16 — Fallen Log — uBase=10 falls through to the tree-bark branch above)
+
+    // Tree Stump — bark via uBase=10/11 above; small mushroom stalk at uBase=8 here.
+    if (mesh_frag == 17u && in.uv.x >= 8.0 && in.uv.x < 9.0) {
+        // tiny toadstool mushroom on the stump
+        albedo = float3(0.78, 0.30, 0.22);
+        emissive += float3(0.55, 0.10, 0.05) * 0.4;
+    }
+
+    // Crystal Cluster — full mesh is emissive crystal, early-return.
+    if (mesh_frag == 18u) {
+        // Slow color cycle plus subtle vertical-position glow gradient
+        float t   = saturate(in.object_pos.y / 1.3);
+        float pulse = 0.65 + 0.35 * sin(frame.time * 1.6 + in.object_pos.y * 3.0);
+        float3 colA = float3(0.45, 0.25, 1.40);   // deep violet
+        float3 colB = float3(0.30, 0.70, 1.30);   // cyan
+        float3 col  = mix(colA, colB, t);
+        return float4(col * pulse * 1.8 + float3(0.18, 0.10, 0.45), 1.0);
+    }
+
+    // Bonfire — flame emissive (uBase=50), logs use bark above, stones use default
+    if (mesh_frag == 19u && in.uv.x >= 50.0) {
+        float flicker = 0.5 + 0.5 * sin(frame.time * 18.0 + in.world_pos.y * 7.0)
+                          + 0.25 * sin(frame.time * 33.0 + in.world_pos.x * 9.0);
+        float vBlend = saturate((in.object_pos.y - 0.4) / 1.05);
+        float3 core  = mix(float3(1.0, 0.55, 0.10), float3(1.0, 0.95, 0.50), 1.0 - vBlend);
+        float3 glow  = float3(2.4, 1.05, 0.30) * flicker;
+        return float4(core + glow * (1.0 - vBlend) * 1.6, 1.0);
+    }
+
+    // Dead Tree — pale gray-brown bare wood with high-freq grain
+    if (mesh_frag == 20u) {
+        float grain = valueNoise3(in.world_pos * float3(28.0, 4.0, 28.0));
+        albedo = float3(0.30, 0.24, 0.18) * mix(0.80, 1.10, grain);
+    }
+
+    // Giant Mushroom — cream stem; cap (uBase=8) glows soft purple-magenta
+    if (mesh_frag == 21u) {
+        if (in.uv.x >= 8.0 && in.uv.x < 9.0) {
+            // Cap — gradient toward the top, soft inner glow
+            float capT  = saturate((in.object_pos.y - 0.95) / 0.55);
+            float3 capA = float3(0.55, 0.10, 0.22);   // deep magenta base
+            float3 capB = float3(1.10, 0.35, 0.55);   // bright pink top
+            float3 capC = mix(capA, capB, capT);
+            albedo   = capC * 0.6;
+            emissive += capC * 0.45;
+        } else {
+            // Stem — cream off-white
+            albedo = float3(0.82, 0.74, 0.60);
+        }
+    }
+
+    // Banner Pole — pole/crossbar use bark (uBase=10) above; cloth (uBase=25) here.
+    if (mesh_frag == 22u && in.uv.x >= 25.0 && in.uv.x < 26.0) {
+        // Cloth uses team color for variety; subtle wave pattern in object Y
+        float wave = sin(in.object_pos.y * 6.0 + frame.time * 0.6) * 0.06;
+        albedo = in.color.rgb * (1.10 + wave);
+        // Soft warm glow on banners (firelight catching them)
+        emissive += in.color.rgb * 0.10;
+    }
+
+    // Berry Bush — foliage default; berries (uBase=8) glow.
+    if (mesh_frag == 23u) {
+        if (in.uv.x >= 8.0 && in.uv.x < 9.0) {
+            albedo = float3(0.80, 0.10, 0.10);
+            emissive += float3(0.85, 0.10, 0.05) * 0.45;
+        } else {
+            // Forest-green foliage with grass-noise variation
+            float n = valueNoise3(in.object_pos * 6.0);
+            albedo = float3(0.10, 0.24, 0.07) * (0.85 + 0.30 * n);
+        }
+    }
+
+    // Shrine — wood beams via bark above; offering plate (uBase=0) keeps team color;
+    // glowing offering at uBase=8 here.
+    if (mesh_frag == 24u && in.uv.x >= 8.0 && in.uv.x < 9.0) {
+        float pulse = 0.7 + 0.3 * sin(frame.time * 1.8);
+        albedo = float3(0.85, 0.75, 0.50);
+        emissive += float3(1.40, 1.10, 0.55) * pulse * 0.9;
     }
 
     // FX: burning — add fiery emissive pulse

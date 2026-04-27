@@ -38,17 +38,54 @@ fn rng_radius(r_min: f32, r_max: f32) f32 {
 // superimposed waves (one sin, one cos at different freqs) make a richly
 // winding centerline; the bell-curve envelope pinches it to x=0 at both
 // endpoints so the player and the gate are always perfectly on-axis.
-const PATH_LEN: f32 = 180.0;
+const PATH_LEN: f32 = 220.0;
 
 fn path_center_x(z: f32) f32 {
     const t = std.math.clamp(-z / PATH_LEN, 0.0, 1.0);
     const env = 4.0 * t * (1.0 - t);
-    return env * (16.0 * std.math.sin(z * 0.05) + 6.0 * std.math.cos(z * 0.08));
+    return env * (20.0 * std.math.sin(z * 0.045) + 8.0 * std.math.cos(z * 0.075));
 }
 
 fn dist_to_path(x: f32, z: f32) f32 {
     if (z > 4.0 or z < -(PATH_LEN + 4.0)) return 9999.0;
     return @abs(x - path_center_x(z));
+}
+
+// Generic scatter spawner for the new asset types (mesh_id 15..24).
+// Rejects positions inside the path corridor with retries.
+fn spawn_scatter_assets(
+    mesh_id: u16,
+    count: usize,
+    scale_min: f32,
+    scale_max: f32,
+    radius_min: f32,
+    radius_max: f32,
+    path_clear: f32,
+    team: u8,
+) void {
+    var n: usize = 0;
+    while (n < count) : (n += 1) {
+        var angle = rng_f32() * 2.0 * std.math.pi;
+        var rr    = rng_radius(radius_min, radius_max);
+        var px = std.math.cos(angle) * rr;
+        var pz = std.math.sin(angle) * rr;
+        var attempts: u32 = 0;
+        while (dist_to_path(px, pz) < path_clear and attempts < 8) : (attempts += 1) {
+            angle = rng_f32() * 2.0 * std.math.pi;
+            rr    = rng_radius(radius_min, radius_max);
+            px = std.math.cos(angle) * rr;
+            pz = std.math.sin(angle) * rr;
+        }
+        const e = world.spawn();
+        world.pos[e]     = Vec3{ .x = px, .y = 0, .z = pz };
+        world.mesh_id[e] = mesh_id;
+        world.scale[e]   = rng_range(scale_min, scale_max);
+        world.team[e]    = team;
+        world.hp[e]      = 9999;
+        world.radius[e]  = 0.4;
+        world.vel[e]     = Vec3.zero;
+        world.rot_y[e]   = rng_f32() * 2.0 * std.math.pi;
+    }
 }
 
 // ── C-exported API (Swift calls these) ───────────────────────────────────────
@@ -86,12 +123,12 @@ export fn game_init() void {
         _ = psys.spawn_emitter(e);
     }
 
-    // Inner forest: truly random positions in annulus r=[25, 195].
+    // Inner forest: truly random positions in annulus r=[25, 270].
     // Reject positions that fall inside the path clearing (within 8m of the
     // path centerline) so the trail to the portal stays open.
-    for (0..330) |ti| {
+    for (0..600) |ti| {
         var angle = rng_f32() * 2.0 * std.math.pi;
-        var r     = rng_radius(25.0, 195.0);
+        var r     = rng_radius(25.0, 270.0);
         var px = std.math.cos(angle) * r;
         var pz = std.math.sin(angle) * r;
         var attempts: u32 = 0;
@@ -121,10 +158,10 @@ export fn game_init() void {
         _ = ti;
     }
 
-    // Border wall: random positions in thick annulus r=[200, 235]
-    for (0..420) |_| {
+    // Border wall: random positions in thick annulus r=[280, 320]
+    for (0..600) |_| {
         const angle = rng_f32() * 2.0 * std.math.pi;
-        const rr    = rng_radius(200.0, 235.0);
+        const rr    = rng_radius(280.0, 320.0);
         const te    = world.spawn();
         world.pos[te]    = Vec3{ .x = std.math.cos(angle) * rr, .y = 0, .z = std.math.sin(angle) * rr };
         world.mesh_id[te]= 2;
@@ -146,9 +183,9 @@ export fn game_init() void {
 
     // Rocks: random scatter across the map, avoid the very center clearing
     // and the path corridor.
-    for (0..165) |_| {
+    for (0..280) |_| {
         var angle = rng_f32() * 2.0 * std.math.pi;
-        var rr    = rng_radius(6.0, 192.0);
+        var rr    = rng_radius(6.0, 270.0);
         var px = std.math.cos(angle) * rr;
         var pz = std.math.sin(angle) * rr;
         var attempts: u32 = 0;
@@ -170,9 +207,9 @@ export fn game_init() void {
 
     // Flowers: random scatter. Stay slightly off the path so they don't
     // get walked over visually.
-    for (0..140) |fi2| {
+    for (0..240) |fi2| {
         var angle = rng_f32() * 2.0 * std.math.pi;
-        var fr    = rng_radius(5.0, 188.0);
+        var fr    = rng_radius(5.0, 265.0);
         var px = std.math.cos(angle) * fr;
         var pz = std.math.sin(angle) * fr;
         var attempts: u32 = 0;
@@ -207,10 +244,10 @@ export fn game_init() void {
         world.vel[e]     = Vec3.zero;
     }
 
-    // Monolith ring at the map edge — 36 stone obelisks evenly spaced around r=195.
-    // Visually marks the boundary that the hard wall in game_update enforces at r=200.
-    const N_MONOLITHS: usize = 36;
-    const MONO_RADIUS: f32 = 195.0;
+    // Monolith ring at the map edge — 48 stone obelisks evenly spaced around r=275.
+    // Visually marks the boundary that the hard wall in game_update enforces at r=280.
+    const N_MONOLITHS: usize = 48;
+    const MONO_RADIUS: f32 = 275.0;
     var i: usize = 0;
     while (i < N_MONOLITHS) : (i += 1) {
         const angle = 2.0 * std.math.pi * @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(N_MONOLITHS));
@@ -246,7 +283,7 @@ export fn game_init() void {
 
     // Path-side lantern torches — alternate sides along the curving path
     // every ~13m so the player has lit waypoints leading them toward the gate.
-    const lantern_count: usize = 14;
+    const lantern_count: usize = 18;
     var li: usize = 0;
     while (li < lantern_count) : (li += 1) {
         const t = (@as(f32, @floatFromInt(li)) + 0.5) / @as(f32, @floatFromInt(lantern_count));
@@ -279,6 +316,22 @@ export fn game_init() void {
         world.radius[e]  = 0.2;
         world.vel[e]     = Vec3.zero;
     }
+
+    // ── 10 new asset types (mesh_id 15..24) — set dressing scattered around the map.
+    // Each loop rejects positions inside the path corridor (within 6m of centerline).
+    spawn_scatter_assets(15, 8,  1.4, 1.9, 30.0, 260.0, 6.0, 15);   // stone_circle (rare landmarks)
+    spawn_scatter_assets(16, 50, 1.0, 1.5, 18.0, 270.0, 6.0, 16);   // fallen_log
+    spawn_scatter_assets(17, 80, 0.9, 1.4, 18.0, 270.0, 5.0, 16);   // tree_stump
+    spawn_scatter_assets(18, 24, 1.2, 2.0, 25.0, 265.0, 6.0, 18);   // crystal_cluster
+    spawn_scatter_assets(19, 7,  1.0, 1.4, 35.0, 240.0, 8.0, 19);   // bonfire
+    spawn_scatter_assets(20, 45, 1.3, 2.0, 22.0, 268.0, 6.0, 20);   // dead_tree
+    spawn_scatter_assets(21, 30, 0.9, 1.6, 20.0, 265.0, 5.0, 21);   // giant_mushroom
+    // Banners: 3 spawns per color (crimson/indigo/gold) — varied team palette
+    spawn_scatter_assets(22, 4,  1.0, 1.3, 28.0, 250.0, 7.0, 30);   // banner crimson
+    spawn_scatter_assets(22, 4,  1.0, 1.3, 28.0, 250.0, 7.0, 31);   // banner indigo
+    spawn_scatter_assets(22, 4,  1.0, 1.3, 28.0, 250.0, 7.0, 32);   // banner gold
+    spawn_scatter_assets(23, 80, 0.8, 1.2, 14.0, 270.0, 5.0, 23);   // berry_bush
+    spawn_scatter_assets(24, 5,  1.2, 1.6, 40.0, 235.0, 9.0, 24);   // shrine
 
     // Gargoyle enemies: scattered near player's starting area
     const gargoyle_positions = [_][2]f32{
@@ -326,7 +379,7 @@ export fn game_update(dt: f32) void {
     enemy_ai.update(&world, player.entity, dt, time);
 
     // Circular map boundary — hard wall stops the player just inside the monolith ring.
-    const MAP_RADIUS: f32 = 200.0;
+    const MAP_RADIUS: f32 = 280.0;
     const pp = world.pos[player.entity];
     const dist_sq = pp.x * pp.x + pp.z * pp.z;
     if (dist_sq > MAP_RADIUS * MAP_RADIUS) {
@@ -418,6 +471,20 @@ export fn game_fill_draws(buf: [*]u8, max_bytes: u32) u32 {
             12 => .{ 0.32 + hf * 0.12, 0.20 + hf * 0.08, 0.10 + hf * 0.04, 1.0 },     // torch: dark wood
             13 => .{ 0.40, 0.45, 0.55, 1.0 },                                          // portal: cool enchanted stone (single entity, no variation)
             14 => .{ 0.40 + hf * 0.18, 0.38 + hf * 0.14, 0.34 + hf * 0.12, 1.0 },     // monolith: ancient gray-brown stone
+            15 => .{ 0.45 + hf * 0.18, 0.42 + hf * 0.14, 0.38 + hf * 0.12, 1.0 },     // stone circle (warm gray)
+            16 => .{ 0.45 + hf * 0.20, 0.30 + hf * 0.10, 0.15 + hf * 0.08, 1.0 },     // log/stump (default — overridden by bark shader)
+            17 => .{ 0.45 + hf * 0.20, 0.30 + hf * 0.10, 0.15 + hf * 0.08, 1.0 },     // tree stump
+            18 => .{ 0.7, 0.4, 1.0, 1.0 },                                              // crystal cluster (override anyway)
+            19 => .{ 0.42 + hf * 0.10, 0.40 + hf * 0.08, 0.36 + hf * 0.06, 1.0 },     // bonfire (gray for stone ring; logs use bark shader)
+            20 => .{ 0.30, 0.24, 0.18, 1.0 },                                          // dead tree (overridden by shader)
+            21 => .{ 0.82, 0.74, 0.60, 1.0 },                                          // giant mushroom stem
+            22 => .{ 0.5, 0.5, 0.5, 1.0 },                                             // banner pole (cloth gets per-team color below)
+            23 => .{ 0.10, 0.24, 0.07, 1.0 },                                          // berry bush foliage (overridden)
+            24 => .{ 0.42 + hf * 0.08, 0.40 + hf * 0.06, 0.36 + hf * 0.06, 1.0 },     // shrine (gray for stone plate; wood uses bark shader)
+            // Banner cloth color teams (read by mesh_frag==22 cloth branch)
+            30 => .{ 0.85, 0.20, 0.18, 1.0 },                                          // crimson banner
+            31 => .{ 0.30, 0.25, 0.85, 1.0 },                                          // indigo banner
+            32 => .{ 0.95, 0.75, 0.30, 1.0 },                                          // gold banner
             else => .{ 0.5, 0.5, 0.5, 1.0 },
         };
 
@@ -493,4 +560,4 @@ export fn game_get_emitters(out_count: *u32) [*]const u8 {
     return @ptrCast(&psys.emitters[0]);
 }
 
-const MAX_DRAW = 2048;
+const MAX_DRAW = 4096;

@@ -13,6 +13,71 @@ struct WorldVertex {
     var u,  v:      Float  // texcoord  (offset 24,  8 bytes)
 }  // total 32 bytes
 
+// ── Shared mesh-building helpers used by the new asset meshes (mesh_id ≥ 15).
+//    Existing meshes (capsule, tree, gargoyle, hero, …) keep their inline
+//    helpers for stability — these are only for the new functions.
+private func mbCylinder(_ verts: inout [WorldVertex], _ idxs: inout [UInt16],
+                        _ p0x: Float, _ p0y: Float, _ p0z: Float,
+                        _ p1x: Float, _ p1y: Float, _ p1z: Float,
+                        r0: Float, r1: Float, sides: Int, uBase: Float) {
+    let dx = p1x-p0x, dy = p1y-p0y, dz = p1z-p0z
+    let len = (dx*dx + dy*dy + dz*dz).squareRoot() + 1e-6
+    let ax = dx/len, ay = dy/len, az = dz/len
+    var rx: Float, ry: Float, rz: Float
+    if abs(ay) < 0.9 {
+        let cl = (az*az + ax*ax).squareRoot() + 1e-6
+        rx = az/cl; ry = 0; rz = -ax/cl
+    } else {
+        let cl = (az*az + ay*ay).squareRoot() + 1e-6
+        rx = 0; ry = -az/cl; rz = ay/cl
+    }
+    let ux = ay*rz - az*ry, uy = az*rx - ax*rz, uz = ax*ry - ay*rx
+    let base = UInt16(verts.count)
+    for i in 0...sides {
+        let t = 2.0 * Float.pi * Float(i) / Float(sides)
+        let c = cos(t), s = sin(t)
+        let nx = c*rx + s*ux, ny = c*ry + s*uy, nz = c*rz + s*uz
+        let nl = (nx*nx + ny*ny + nz*nz).squareRoot() + 1e-6
+        verts.append(WorldVertex(px: p0x+c*rx*r0+s*ux*r0, py: p0y+c*ry*r0+s*uy*r0, pz: p0z+c*rz*r0+s*uz*r0,
+                                 nx: nx/nl, ny: ny/nl, nz: nz/nl, u: uBase, v: 1))
+        verts.append(WorldVertex(px: p1x+c*rx*r1+s*ux*r1, py: p1y+c*ry*r1+s*uy*r1, pz: p1z+c*rz*r1+s*uz*r1,
+                                 nx: nx/nl, ny: ny/nl, nz: nz/nl, u: uBase, v: 0))
+    }
+    for i in 0..<UInt16(sides) {
+        let a = base + i*2
+        idxs.append(contentsOf: [a, a+2, a+1,  a+1, a+2, a+3])
+    }
+}
+
+private func mbSphere(_ verts: inout [WorldVertex], _ idxs: inout [UInt16],
+                      _ cx: Float, _ cy: Float, _ cz: Float, _ r: Float,
+                      slices: Int, rings: Int, uBase: Float) {
+    let base = UInt16(verts.count)
+    for ring in 0...rings {
+        let phi = Float.pi * Float(ring) / Float(rings)
+        let sinP = sin(phi), cosP = cos(phi)
+        for sl in 0...slices {
+            let theta = 2.0 * Float.pi * Float(sl) / Float(slices)
+            let c = cos(theta), s = sin(theta)
+            verts.append(WorldVertex(px: c*sinP*r+cx, py: -cosP*r+cy, pz: s*sinP*r+cz,
+                                     nx: c*sinP, ny: -cosP, nz: s*sinP,
+                                     u: uBase, v: Float(ring)/Float(rings)))
+        }
+    }
+    for ring in 0..<rings { for sl in 0..<slices {
+        let a = base + UInt16(ring*(slices+1)+sl)
+        let b = a+1; let c2 = base + UInt16((ring+1)*(slices+1)+sl); let d = c2+1
+        idxs.append(contentsOf: [a, c2, b,  b, c2, d])
+    }}
+}
+
+private func mbBuffers(_ verts: [WorldVertex], _ idxs: [UInt16], _ device: MTLDevice)
+    -> (vtx: MTLBuffer, idx: MTLBuffer, count: Int) {
+    let vBuf = device.makeBuffer(bytes: verts, length: verts.count * MemoryLayout<WorldVertex>.size, options: .storageModeShared)!
+    let iBuf = device.makeBuffer(bytes: idxs,  length: idxs.count  * MemoryLayout<UInt16>.size,      options: .storageModeShared)!
+    return (vBuf, iBuf, idxs.count)
+}
+
 /// Flat ground quad, ±halfSize in XZ at y = 0.
 func makeGround(device: MTLDevice, halfSize: Float = 380) -> (vtx: MTLBuffer, idx: MTLBuffer, count: Int) {
     let s = halfSize
@@ -1026,4 +1091,198 @@ func makeMonolith(device: MTLDevice) -> (vtx: MTLBuffer, idx: MTLBuffer, count: 
     let vBuf = device.makeBuffer(bytes: verts, length: verts.count * MemoryLayout<WorldVertex>.size, options: .storageModeShared)!
     let iBuf = device.makeBuffer(bytes: idxs,  length: idxs.count  * MemoryLayout<UInt16>.size,      options: .storageModeShared)!
     return (vBuf, iBuf, idxs.count)
+}
+
+// ── New asset 15: Stone Circle (mesh_id 15) ─ small henge of 6 standing stones
+func makeStoneCircle(device: MTLDevice) -> (vtx: MTLBuffer, idx: MTLBuffer, count: Int) {
+    var v: [WorldVertex] = []
+    var i: [UInt16] = []
+    let stones = 6
+    let ringR: Float = 1.5
+    for s in 0..<stones {
+        let a = 2.0 * Float.pi * Float(s) / Float(stones)
+        let bx = cos(a) * ringR
+        let bz = sin(a) * ringR
+        // Lean inward slightly: top is closer to center
+        let tx = cos(a) * (ringR - 0.15)
+        let tz = sin(a) * (ringR - 0.15)
+        let tilt = Float.random(in: -0.05...0.05)
+        mbCylinder(&v, &i, bx, 0, bz, tx + tilt, 0.95 + tilt, tz, r0: 0.20, r1: 0.13, sides: 5, uBase: 0)
+    }
+    return mbBuffers(v, i, device)
+}
+
+// ── New asset 16: Fallen Log (mesh_id 16) ─ horizontal mossy log lying on the ground
+func makeFallenLog(device: MTLDevice) -> (vtx: MTLBuffer, idx: MTLBuffer, count: Int) {
+    var v: [WorldVertex] = []
+    var i: [UInt16] = []
+    // Main trunk lying along X axis at y=0.4
+    mbCylinder(&v, &i, -1.5, 0.4, 0,  1.5, 0.4, 0.05,  r0: 0.40, r1: 0.36, sides: 7, uBase: 10)
+    // Bark caps at the ends (rough sphere stubs)
+    mbSphere(&v, &i, -1.5, 0.4, 0,    0.40, slices: 6, rings: 4, uBase: 10)
+    mbSphere(&v, &i,  1.5, 0.4, 0.05, 0.36, slices: 6, rings: 4, uBase: 10)
+    // Two short broken side branches stubs
+    mbCylinder(&v, &i, 0.3, 0.55, 0.0,  0.55, 0.78, 0.18, r0: 0.10, r1: 0.04, sides: 4, uBase: 10)
+    mbCylinder(&v, &i, -0.6, 0.55, -0.05,  -0.85, 0.72, -0.20, r0: 0.09, r1: 0.03, sides: 4, uBase: 10)
+    return mbBuffers(v, i, device)
+}
+
+// ── New asset 17: Tree Stump (mesh_id 17) ─ short cut trunk
+func makeTreeStump(device: MTLDevice) -> (vtx: MTLBuffer, idx: MTLBuffer, count: Int) {
+    var v: [WorldVertex] = []
+    var i: [UInt16] = []
+    // Stump body
+    mbCylinder(&v, &i, 0, 0, 0,  0, 0.55, 0,  r0: 0.50, r1: 0.46, sides: 8, uBase: 10)
+    // Flat top disc — thin wider cylinder gives the cut-wood look
+    mbCylinder(&v, &i, 0, 0.55, 0,  0, 0.60, 0,  r0: 0.46, r1: 0.46, sides: 10, uBase: 11)
+    // A small mushroom growing on the side
+    mbCylinder(&v, &i, 0.42, 0.20, 0.10,  0.46, 0.30, 0.10,  r0: 0.04, r1: 0.04, sides: 4, uBase: 0)
+    mbSphere(&v, &i, 0.46, 0.32, 0.10, 0.07, slices: 4, rings: 3, uBase: 8)
+    return mbBuffers(v, i, device)
+}
+
+// ── New asset 18: Crystal Cluster (mesh_id 18) ─ emissive shards rising from ground
+func makeCrystalCluster(device: MTLDevice) -> (vtx: MTLBuffer, idx: MTLBuffer, count: Int) {
+    var v: [WorldVertex] = []
+    var i: [UInt16] = []
+    // 4 angled spires of different heights
+    mbCylinder(&v, &i,  0.00, 0.0,  0.00,  0.05, 1.30, -0.10, r0: 0.18, r1: 0.0, sides: 4, uBase: 0)
+    mbCylinder(&v, &i,  0.30, 0.0,  0.10,  0.45, 1.00,  0.15, r0: 0.13, r1: 0.0, sides: 4, uBase: 0)
+    mbCylinder(&v, &i, -0.25, 0.0,  0.20, -0.32, 1.10,  0.30, r0: 0.11, r1: 0.0, sides: 4, uBase: 0)
+    mbCylinder(&v, &i,  0.10, 0.0, -0.30,  0.18, 0.85, -0.45, r0: 0.09, r1: 0.0, sides: 4, uBase: 0)
+    // Tiny base shard
+    mbCylinder(&v, &i, -0.10, 0.0, -0.15, -0.05, 0.50, -0.20, r0: 0.06, r1: 0.0, sides: 3, uBase: 0)
+    return mbBuffers(v, i, device)
+}
+
+// ── New asset 19: Bonfire (mesh_id 19) ─ stone ring + log pile + flame
+func makeBonfire(device: MTLDevice) -> (vtx: MTLBuffer, idx: MTLBuffer, count: Int) {
+    var v: [WorldVertex] = []
+    var i: [UInt16] = []
+    // Stone ring around the base (6 small rocks)
+    for s in 0..<6 {
+        let a = 2.0 * Float.pi * Float(s) / 6.0
+        let cx = cos(a) * 0.7
+        let cz = sin(a) * 0.7
+        mbSphere(&v, &i, cx, 0.10, cz, 0.16, slices: 5, rings: 3, uBase: 0)
+    }
+    // Log pile — three crossed cylinders raising the fuel
+    mbCylinder(&v, &i, -0.4, 0.18, -0.2,  0.4, 0.18, 0.2,  r0: 0.08, r1: 0.08, sides: 4, uBase: 10)
+    mbCylinder(&v, &i, -0.4, 0.18,  0.2,  0.4, 0.18, -0.2, r0: 0.08, r1: 0.08, sides: 4, uBase: 10)
+    mbCylinder(&v, &i, -0.2, 0.32, -0.3,  0.2, 0.32,  0.3, r0: 0.07, r1: 0.07, sides: 4, uBase: 10)
+    // Flame cone — uBase=50 marks emissive flame in the shader
+    let flameSides = 8
+    let flameR: Float  = 0.40
+    let flameY0: Float = 0.40
+    let flameY1: Float = 1.45
+    let flameBase = UInt16(v.count)
+    for k in 0...flameSides {
+        let theta = 2.0 * Float.pi * Float(k) / Float(flameSides)
+        let cx = cos(theta), sz = sin(theta)
+        v.append(WorldVertex(px: cx*flameR, py: flameY0, pz: sz*flameR, nx: cx, ny: 0.5, nz: sz, u: 50.0, v: 1))
+        v.append(WorldVertex(px: 0,         py: flameY1, pz: 0,          nx: 0,  ny: 1,   nz: 0,  u: 50.0, v: 0))
+    }
+    for k in 0..<UInt16(flameSides) {
+        let a = flameBase + k * 2
+        i.append(contentsOf: [a, a + 2, a + 1])
+    }
+    return mbBuffers(v, i, device)
+}
+
+// ── New asset 20: Dead Tree (mesh_id 20) ─ twisted bare trunk + branches, no leaves
+func makeDeadTree(device: MTLDevice) -> (vtx: MTLBuffer, idx: MTLBuffer, count: Int) {
+    var v: [WorldVertex] = []
+    var i: [UInt16] = []
+    // Twisting trunk: two segments at slight bend
+    mbCylinder(&v, &i,  0,    0,    0,      0.05, 1.3,  0.05, r0: 0.20, r1: 0.16, sides: 5, uBase: 0)
+    mbCylinder(&v, &i,  0.05, 1.3,  0.05,  -0.04, 2.4,  0.10, r0: 0.16, r1: 0.10, sides: 5, uBase: 0)
+    mbCylinder(&v, &i, -0.04, 2.4,  0.10,   0.10, 3.3, -0.05, r0: 0.10, r1: 0.05, sides: 4, uBase: 0)
+    // Bare angular branches (no leaves)
+    mbCylinder(&v, &i,  0.05, 1.6,  0.05,   0.6, 2.1,  0.30, r0: 0.07, r1: 0.02, sides: 4, uBase: 0)
+    mbCylinder(&v, &i,  0.05, 1.6,  0.05,  -0.5, 2.0, -0.20, r0: 0.06, r1: 0.02, sides: 4, uBase: 0)
+    mbCylinder(&v, &i, -0.04, 2.4,  0.10,   0.55, 3.1, 0.4,  r0: 0.06, r1: 0.02, sides: 4, uBase: 0)
+    mbCylinder(&v, &i, -0.04, 2.4,  0.10,  -0.55, 3.0, -0.3, r0: 0.06, r1: 0.02, sides: 4, uBase: 0)
+    mbCylinder(&v, &i,  0.10, 3.3, -0.05,   0.40, 3.7, -0.30, r0: 0.04, r1: 0.01, sides: 3, uBase: 0)
+    mbCylinder(&v, &i,  0.10, 3.3, -0.05,  -0.30, 3.6,  0.25, r0: 0.04, r1: 0.01, sides: 3, uBase: 0)
+    return mbBuffers(v, i, device)
+}
+
+// ── New asset 21: Giant Mushroom (mesh_id 21) ─ POE2-style oversized fungus
+func makeGiantMushroom(device: MTLDevice) -> (vtx: MTLBuffer, idx: MTLBuffer, count: Int) {
+    var v: [WorldVertex] = []
+    var i: [UInt16] = []
+    // Stem (slight bulge near base)
+    mbCylinder(&v, &i, 0, 0,    0,  0, 0.30, 0,  r0: 0.30, r1: 0.22, sides: 8, uBase: 0)
+    mbCylinder(&v, &i, 0, 0.30, 0,  0, 0.95, 0,  r0: 0.22, r1: 0.18, sides: 8, uBase: 0)
+    // Cap underside (skirt at the top of the stem)
+    mbCylinder(&v, &i, 0, 0.95, 0,  0, 1.05, 0,  r0: 0.30, r1: 0.55, sides: 10, uBase: 8)
+    // Cap dome (uBase=8 → emissive in shader)
+    mbSphere(&v, &i, 0, 1.05, 0, 0.55, slices: 10, rings: 5, uBase: 8)
+    return mbBuffers(v, i, device)
+}
+
+// ── New asset 22: Banner Pole (mesh_id 22) ─ tall pole with hanging cloth banner
+func makeBannerPole(device: MTLDevice) -> (vtx: MTLBuffer, idx: MTLBuffer, count: Int) {
+    var v: [WorldVertex] = []
+    var i: [UInt16] = []
+    // Pole
+    mbCylinder(&v, &i, 0, 0, 0,  0, 3.5, 0,  r0: 0.07, r1: 0.05, sides: 6, uBase: 10)
+    // Crossbar
+    mbCylinder(&v, &i, -0.65, 3.05, 0,  0.65, 3.05, 0,  r0: 0.04, r1: 0.04, sides: 4, uBase: 10)
+    // Spear tip on top
+    mbCylinder(&v, &i, 0, 3.5, 0,  0, 3.85, 0,  r0: 0.06, r1: 0.0, sides: 4, uBase: 10)
+    // Banner cloth — vertical quad in the XY plane (uBase=25 = cloth shader branch)
+    let dl: Float    = 0.55
+    let dyMin: Float = 1.20
+    let dyMax: Float = 3.00
+    let dBase = UInt16(v.count)
+    v.append(WorldVertex(px: -dl, py: dyMin, pz: 0, nx: 0, ny: 0, nz: 1, u: 25.0, v: 1))
+    v.append(WorldVertex(px:  dl, py: dyMin, pz: 0, nx: 0, ny: 0, nz: 1, u: 25.0, v: 1))
+    v.append(WorldVertex(px: -dl, py: dyMax, pz: 0, nx: 0, ny: 0, nz: 1, u: 25.0, v: 0))
+    v.append(WorldVertex(px:  dl, py: dyMax, pz: 0, nx: 0, ny: 0, nz: 1, u: 25.0, v: 0))
+    i.append(contentsOf: [dBase, dBase + 1, dBase + 2,  dBase + 2, dBase + 1, dBase + 3])
+    i.append(contentsOf: [dBase, dBase + 2, dBase + 1,  dBase + 2, dBase + 3, dBase + 1])
+    return mbBuffers(v, i, device)
+}
+
+// ── New asset 23: Berry Bush (mesh_id 23) ─ clumped foliage with glowing berries
+func makeBerryBush(device: MTLDevice) -> (vtx: MTLBuffer, idx: MTLBuffer, count: Int) {
+    var v: [WorldVertex] = []
+    var i: [UInt16] = []
+    // Foliage: 5 overlapping spheres
+    mbSphere(&v, &i,  0.00, 0.30,  0.00, 0.36, slices: 6, rings: 4, uBase: 0)
+    mbSphere(&v, &i,  0.25, 0.25,  0.15, 0.30, slices: 6, rings: 4, uBase: 0)
+    mbSphere(&v, &i, -0.20, 0.35,  0.10, 0.30, slices: 6, rings: 4, uBase: 0)
+    mbSphere(&v, &i,  0.10, 0.45, -0.15, 0.26, slices: 5, rings: 3, uBase: 0)
+    mbSphere(&v, &i, -0.15, 0.30, -0.20, 0.26, slices: 5, rings: 3, uBase: 0)
+    // Berries (uBase=8 → emissive red in shader)
+    mbSphere(&v, &i,  0.20, 0.42,  0.10, 0.06, slices: 4, rings: 3, uBase: 8)
+    mbSphere(&v, &i, -0.10, 0.50,  0.18, 0.06, slices: 4, rings: 3, uBase: 8)
+    mbSphere(&v, &i,  0.02, 0.32, -0.25, 0.06, slices: 4, rings: 3, uBase: 8)
+    mbSphere(&v, &i, -0.25, 0.42, -0.05, 0.05, slices: 4, rings: 3, uBase: 8)
+    return mbBuffers(v, i, device)
+}
+
+// ── New asset 24: Forest Shrine (mesh_id 24) ─ small wooden shrine with offering
+func makeShrine(device: MTLDevice) -> (vtx: MTLBuffer, idx: MTLBuffer, count: Int) {
+    var v: [WorldVertex] = []
+    var i: [UInt16] = []
+    // 4 corner posts (square footprint)
+    mbCylinder(&v, &i, -0.55, 0, -0.55,  -0.55, 1.50, -0.55, r0: 0.06, r1: 0.06, sides: 4, uBase: 10)
+    mbCylinder(&v, &i,  0.55, 0, -0.55,   0.55, 1.50, -0.55, r0: 0.06, r1: 0.06, sides: 4, uBase: 10)
+    mbCylinder(&v, &i, -0.55, 0,  0.55,  -0.55, 1.50,  0.55, r0: 0.06, r1: 0.06, sides: 4, uBase: 10)
+    mbCylinder(&v, &i,  0.55, 0,  0.55,   0.55, 1.50,  0.55, r0: 0.06, r1: 0.06, sides: 4, uBase: 10)
+    // Roof beams: peaked square pyramid converging at apex above center
+    mbCylinder(&v, &i, -0.65, 1.50, -0.65,  0.0, 2.05, 0.0,  r0: 0.04, r1: 0.03, sides: 3, uBase: 10)
+    mbCylinder(&v, &i,  0.65, 1.50, -0.65,  0.0, 2.05, 0.0,  r0: 0.04, r1: 0.03, sides: 3, uBase: 10)
+    mbCylinder(&v, &i, -0.65, 1.50,  0.65,  0.0, 2.05, 0.0,  r0: 0.04, r1: 0.03, sides: 3, uBase: 10)
+    mbCylinder(&v, &i,  0.65, 1.50,  0.65,  0.0, 2.05, 0.0,  r0: 0.04, r1: 0.03, sides: 3, uBase: 10)
+    // Cross-bracing under the roof (visible side beams)
+    mbCylinder(&v, &i, -0.55, 1.50, -0.55,   0.55, 1.50, -0.55, r0: 0.04, r1: 0.04, sides: 3, uBase: 10)
+    mbCylinder(&v, &i, -0.55, 1.50,  0.55,   0.55, 1.50,  0.55, r0: 0.04, r1: 0.04, sides: 3, uBase: 10)
+    // Stone offering plate (uBase=0 → stone treatment)
+    mbCylinder(&v, &i, 0, 0.30, 0,  0, 0.42, 0, r0: 0.32, r1: 0.30, sides: 8, uBase: 0)
+    // Glowing offering at the center (uBase=8 → emissive)
+    mbSphere(&v, &i, 0, 0.55, 0, 0.10, slices: 5, rings: 3, uBase: 8)
+    return mbBuffers(v, i, device)
 }

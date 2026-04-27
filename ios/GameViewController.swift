@@ -261,6 +261,36 @@ class GameViewController: UIViewController, MTKViewDelegate {
     var monolithVBuf:      MTLBuffer!
     var monolithIBuf:      MTLBuffer!
     var monolithIndexCount: Int = 0
+    var stoneCircleVBuf:   MTLBuffer!
+    var stoneCircleIBuf:   MTLBuffer!
+    var stoneCircleIndexCount: Int = 0
+    var fallenLogVBuf:     MTLBuffer!
+    var fallenLogIBuf:     MTLBuffer!
+    var fallenLogIndexCount: Int = 0
+    var treeStumpVBuf:     MTLBuffer!
+    var treeStumpIBuf:     MTLBuffer!
+    var treeStumpIndexCount: Int = 0
+    var crystalVBuf:       MTLBuffer!
+    var crystalIBuf:       MTLBuffer!
+    var crystalIndexCount: Int = 0
+    var bonfireVBuf:       MTLBuffer!
+    var bonfireIBuf:       MTLBuffer!
+    var bonfireIndexCount: Int = 0
+    var deadTreeVBuf:      MTLBuffer!
+    var deadTreeIBuf:      MTLBuffer!
+    var deadTreeIndexCount: Int = 0
+    var giantMushroomVBuf: MTLBuffer!
+    var giantMushroomIBuf: MTLBuffer!
+    var giantMushroomIndexCount: Int = 0
+    var bannerVBuf:        MTLBuffer!
+    var bannerIBuf:        MTLBuffer!
+    var bannerIndexCount:  Int = 0
+    var berryBushVBuf:     MTLBuffer!
+    var berryBushIBuf:     MTLBuffer!
+    var berryBushIndexCount: Int = 0
+    var shrineVBuf:        MTLBuffer!
+    var shrineIBuf:        MTLBuffer!
+    var shrineIndexCount:  Int = 0
 
     // Skill button
     var skillButton: UIButton!
@@ -516,6 +546,16 @@ class GameViewController: UIViewController, MTKViewDelegate {
                             case 9:  return (torchVBuf,       torchIBuf,       torchIndexCount)
                             case 13: return (portalVBuf,      portalIBuf,      portalIndexCount)
                             case 14: return (monolithVBuf,    monolithIBuf,    monolithIndexCount)
+                            case 15: return (stoneCircleVBuf, stoneCircleIBuf, stoneCircleIndexCount)
+                            case 16: return (fallenLogVBuf,   fallenLogIBuf,   fallenLogIndexCount)
+                            case 17: return (treeStumpVBuf,   treeStumpIBuf,   treeStumpIndexCount)
+                            case 18: return (crystalVBuf,     crystalIBuf,     crystalIndexCount)
+                            case 19: return (bonfireVBuf,     bonfireIBuf,     bonfireIndexCount)
+                            case 20: return (deadTreeVBuf,    deadTreeIBuf,    deadTreeIndexCount)
+                            case 21: return (giantMushroomVBuf, giantMushroomIBuf, giantMushroomIndexCount)
+                            case 22: return (bannerVBuf,      bannerIBuf,      bannerIndexCount)
+                            case 23: return (berryBushVBuf,   berryBushIBuf,   berryBushIndexCount)
+                            case 24: return (shrineVBuf,      shrineIBuf,      shrineIndexCount)
                             default: return (capsuleVBuf,     capsuleIBuf,     capsuleIndexCount)
                             }
                         }()
@@ -807,6 +847,28 @@ class GameViewController: UIViewController, MTKViewDelegate {
         monolithVBuf       = mv
         monolithIBuf       = mi
         monolithIndexCount = mc
+
+        // ── 10 new asset meshes ─────────────────────────────────────────
+        let (scv, sci, scc) = makeStoneCircle(device: device)
+        stoneCircleVBuf = scv;  stoneCircleIBuf = sci;  stoneCircleIndexCount = scc
+        let (flv, fli, flc) = makeFallenLog(device: device)
+        fallenLogVBuf = flv;    fallenLogIBuf = fli;    fallenLogIndexCount = flc
+        let (tsv, tsi, tsc) = makeTreeStump(device: device)
+        treeStumpVBuf = tsv;    treeStumpIBuf = tsi;    treeStumpIndexCount = tsc
+        let (crv, cri, crc) = makeCrystalCluster(device: device)
+        crystalVBuf = crv;      crystalIBuf = cri;      crystalIndexCount = crc
+        let (bfv, bfi, bfc) = makeBonfire(device: device)
+        bonfireVBuf = bfv;      bonfireIBuf = bfi;      bonfireIndexCount = bfc
+        let (dtv, dti, dtc) = makeDeadTree(device: device)
+        deadTreeVBuf = dtv;     deadTreeIBuf = dti;     deadTreeIndexCount = dtc
+        let (gmv, gmi, gmc) = makeGiantMushroom(device: device)
+        giantMushroomVBuf = gmv; giantMushroomIBuf = gmi; giantMushroomIndexCount = gmc
+        let (bnv, bni, bnc) = makeBannerPole(device: device)
+        bannerVBuf = bnv;       bannerIBuf = bni;       bannerIndexCount = bnc
+        let (bbv, bbi, bbc) = makeBerryBush(device: device)
+        berryBushVBuf = bbv;    berryBushIBuf = bbi;    berryBushIndexCount = bbc
+        let (shv, shi, shc) = makeShrine(device: device)
+        shrineVBuf = shv;       shrineIBuf = shi;       shrineIndexCount = shc
 
         // 88-byte DrawCall for the ground: identity model + earthy dark color
         // Layout: float4x4 model (64B) | float4 color (16B) | uint fx_flags (4B) | ushort mesh_id (2B) | uchar2 pad (2B)
