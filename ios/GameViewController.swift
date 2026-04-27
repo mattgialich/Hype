@@ -191,7 +191,7 @@ private class StatBarView: UIView {
 }
 
 // Particle + draw buffer sizes — must match Zig constants
-let kMaxDrawCalls   = 1024
+let kMaxDrawCalls   = 2048
 let kMaxEmitters    = 256
 let kDrawCallStride = 88    // sizeof(DrawCall) in Zig
 let kEmitterStride  = 104   // sizeof(GpuEmitter) in Zig
