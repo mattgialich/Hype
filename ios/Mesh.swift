@@ -895,11 +895,57 @@ func makePortal(device: MTLDevice) -> (vtx: MTLBuffer, idx: MTLBuffer, count: In
         }
     }
 
-    // ── Two side pillars ──
+    func addSphere(_ cx: Float, _ cy: Float, _ cz: Float, _ r: Float,
+                   slices: Int, rings: Int, uBase: Float) {
+        let base = UInt16(verts.count)
+        for ring in 0...rings {
+            let phi = Float.pi * Float(ring) / Float(rings)
+            let sinP = sin(phi), cosP = cos(phi)
+            for sl in 0...slices {
+                let theta = 2.0 * Float.pi * Float(sl) / Float(slices)
+                let c = cos(theta), s = sin(theta)
+                verts.append(WorldVertex(px: c*sinP*r+cx, py: -cosP*r+cy, pz: s*sinP*r+cz,
+                                         nx: c*sinP, ny: -cosP, nz: s*sinP,
+                                         u: uBase, v: Float(ring)/Float(rings)))
+            }
+        }
+        for ring in 0..<rings { for sl in 0..<slices {
+            let a = base + UInt16(ring*(slices+1)+sl)
+            let b = a+1; let c2 = base + UInt16((ring+1)*(slices+1)+sl); let d = c2+1
+            idxs.append(contentsOf: [a, c2, b,  b, c2, d])
+        }}
+    }
+
+    // ── Foot disc: a single thick low cylinder underfoot, suggesting a worn
+    //    threshold / footprint area for the gate (uBase=0 → stone treatment).
+    addCylinder(0, 0, 0,  0, 0.12, 0,  r0: 1.7, r1: 1.6, sides: 12, uBase: 0)
+
+    // ── Two outer buttress pillars (smaller, flanking the main arch) ──
+    let buttressX: Float = 2.6
+    let buttressH: Float = 3.1
+    addCylinder(-buttressX, 0, 0,  -buttressX, buttressH, 0,  r0: 0.16, r1: 0.13, sides: 5, uBase: 0)
+    addCylinder( buttressX, 0, 0,   buttressX, buttressH, 0,  r0: 0.16, r1: 0.13, sides: 5, uBase: 0)
+
+    // ── Two side pillars (main arch supports) ──
     let pillarH: Float = 3.5
     let pillarX: Float = 1.2
     addCylinder(-pillarX, 0, 0,  -pillarX, pillarH, 0,  r0: 0.24, r1: 0.20, sides: 6, uBase: 0)
     addCylinder( pillarX, 0, 0,   pillarX, pillarH, 0,  r0: 0.24, r1: 0.20, sides: 6, uBase: 0)
+
+    // ── Shoulder spans: short horizontal-ish links from buttress tops down to
+    //    just below the main pillar tops, suggesting a continuous frame. ──
+    addCylinder(-buttressX, buttressH, 0,  -pillarX, pillarH - 0.15, 0,  r0: 0.10, r1: 0.10, sides: 4, uBase: 0)
+    addCylinder( buttressX, buttressH, 0,   pillarX, pillarH - 0.15, 0,  r0: 0.10, r1: 0.10, sides: 4, uBase: 0)
+
+    // ── Decorative bands around main pillars (mid-height stone rings) ──
+    addCylinder(-pillarX, 1.5, 0,  -pillarX, 1.65, 0,  r0: 0.30, r1: 0.27, sides: 8, uBase: 0)
+    addCylinder( pillarX, 1.5, 0,   pillarX, 1.65, 0,  r0: 0.30, r1: 0.27, sides: 8, uBase: 0)
+
+    // ── Glowing finials atop each pillar (uBase=80 → warm lantern shader branch) ──
+    addSphere(-pillarX,   pillarH   + 0.18, 0, 0.16, slices: 6, rings: 4, uBase: 80)
+    addSphere( pillarX,   pillarH   + 0.18, 0, 0.16, slices: 6, rings: 4, uBase: 80)
+    addSphere(-buttressX, buttressH + 0.12, 0, 0.10, slices: 4, rings: 3, uBase: 80)
+    addSphere( buttressX, buttressH + 0.12, 0, 0.10, slices: 4, rings: 3, uBase: 80)
 
     // ── Arched top: 4 cylinders following a parabolic-ish arc ──
     let archPts: [(Float, Float)] = [

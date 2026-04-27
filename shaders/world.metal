@@ -189,20 +189,55 @@ fragment float4 frag_world_forward(
         float sparkleMask = smoothstep(0.992, 0.998, sparkleHash);
         float3 sparkle    = float3(0.6, 0.7, 0.9) * sparkleMask;
 
-        // Trodden dirt PATH from start (0,0) to the zone portal at (0,-100).
-        // The path is a corridor along the -Z axis; centerline x=0, length 100m.
-        // Edges wobble via noise for a natural foot-worn look.
-        float along       = -wxz.y;                      // 0 at start, 100 at portal
-        float across      = abs(wxz.x);
-        float edgeWobble  = (valueNoise3(float3(wxz.x * 2.0, 8.0, wxz.y * 2.0)) - 0.5) * 0.7;
-        float pathRadius  = 2.4 + edgeWobble;
-        float inSegment   = saturate((along + 1.0) * 0.5) * (1.0 - saturate((along - 100.0) * 0.5));
-        float pathBlend   = (1.0 - smoothstep(pathRadius, pathRadius + 0.7, across)) * inSegment;
-        // Centerline darker wear (ruts where feet have walked most)
-        float wear        = 1.0 - smoothstep(0.0, 0.8, across);
-        float3 pathDirt   = float3(0.32, 0.20, 0.08) * (1.0 - wear * 0.25);
-        pathDirt         *= 0.85 + 0.30 * grass;
-        col = mix(col, pathDirt, pathBlend);
+        // ── Winding curved path from start (0,0) to the portal at (0,-100) ──
+        // Smooth sin-wave centerline that pinches to x=0 at both endpoints.
+        float pz       = wxz.y;
+        float t_along  = saturate(-pz / 100.0);                          // 0 at start, 1 at portal
+        float envelope = 4.0 * t_along * (1.0 - t_along);                // bell curve: 0 endpoints, 1 middle
+        float center_x = envelope * (8.0 * sin(pz * 0.06) + 3.0 * sin(pz * 0.15));
+        float across   = abs(wxz.x - center_x);
+
+        // Width: wide at endpoints (4.5m radius), narrow in the middle (2.5m radius).
+        // Each endpoint widening fades over its first/last 8m.
+        float wideStart = 1.0 - smoothstep(0.0, 8.0, t_along * 100.0);    // 1 at start, 0 by 8m
+        float wideEnd   = 1.0 - smoothstep(0.0, 8.0, (1.0 - t_along) * 100.0); // 1 at portal, 0 by 8m before
+        float pathRadius = mix(2.5, 4.5, max(wideStart, wideEnd));
+        // Organic edge wobble (small, low frequency along the path)
+        pathRadius += (valueNoise3(float3(wxz.x * 0.6, 8.0, wxz.y * 0.6)) - 0.5) * 0.9;
+
+        // Active path range: t_along in [0, 1] with a small fade outside the segment
+        float inSegment = saturate((t_along + 0.01) * 100.0) * saturate((1.01 - t_along) * 100.0);
+        // Soft-edge path blend
+        float pathBlend = (1.0 - smoothstep(pathRadius, pathRadius + 0.7, across)) * inSegment;
+
+        // CLEARING ZONE around the path — bias the floor toward bright moss + leaves only.
+        // Re-derive a clearing-friendly palette (no dark earth) and mix in based on proximity.
+        float clearingRadius = pathRadius + 7.0;
+        float clearingBlend  = (1.0 - smoothstep(clearingRadius - 3.0, clearingRadius, across)) * inSegment;
+        float3 clearingCol   = mix(mossLight, leaves, smoothstep(0.55, 0.85, patch) * bias);
+        clearingCol         *= 0.90 + 0.25 * grass;
+        col = mix(col, clearingCol, clearingBlend * 0.65);
+
+        // PATH DIRT — warm trodden brown with dark centerline rut, picks up grass detail.
+        float3 pathDirt    = float3(0.32, 0.20, 0.08);
+        float  centerWear  = 1.0 - smoothstep(0.0, 0.9, across);          // 1 at center, 0 past 0.9m
+        pathDirt          *= 1.0 - centerWear * 0.30;                     // darker rut down the middle
+        pathDirt          *= 0.85 + 0.30 * grass;
+
+        // PAVED COBBLESTONE near the portal (last 8m before z=-100): replaces dirt with stone slabs.
+        float pavingMask = smoothstep(0.92, 1.0, t_along);                // 0..1 over the last 8m
+        float2 slabCoord = floor(wxz * 2.0);                              // 0.5m grid
+        float  slabHash  = hash21(slabCoord);
+        float3 slabBase  = float3(0.30, 0.31, 0.34);
+        slabBase        *= 0.85 + 0.30 * slabHash;                        // per-slab tone variation
+        // Subtle dark grout between slabs
+        float2 slabFrac  = fract(wxz * 2.0);
+        float  grout     = step(slabFrac.x, 0.06) + step(0.94, slabFrac.x)
+                         + step(slabFrac.y, 0.06) + step(0.94, slabFrac.y);
+        slabBase        *= 1.0 - saturate(grout) * 0.35;
+
+        float3 surface = mix(pathDirt, slabBase, pavingMask);
+        col = mix(col, surface, pathBlend);
 
         // Forest lighting (matches what other meshes use at the bottom of the function)
         float3 L = normalize(float3(0.4, 1.0, 0.25));
@@ -419,6 +454,14 @@ fragment float4 frag_world_forward(
 
     // Zone-transition portal: enchanted stone arch + animated swirl disc + light beacon
     if (mesh_frag == 13u) {
+        if (in.uv.x >= 80.0) {
+            // FINIAL LANTERN — warm orange-amber emissive sphere on top of pillars,
+            // with a subtle two-frequency flicker. Early-return.
+            float flicker = 0.85 + 0.15 * sin(frame.time * 3.0 + in.object_pos.y * 5.0)
+                                 + 0.10 * sin(frame.time * 7.5);
+            float3 core   = float3(1.6, 0.85, 0.30);    // warm amber
+            return float4(core * flicker * 1.4, 1.0);
+        }
         if (in.uv.x >= 70.0) {
             // BEACON — tall thin emissive light pillar, visible from anywhere on the map.
             // Vertical falloff: brightest at the base (where the swirl is), dimmer up high.
@@ -428,28 +471,44 @@ fragment float4 frag_world_forward(
             return float4(float3(0.6, 1.4, 2.4) * fade * pulse * 1.6, 1.0);
         }
         if (in.uv.x >= 60.0) {
-            // SWIRL — animated emissive spiral, early return.
-            // Object_pos.xy gives stable mesh-frame coords for polar math.
-            float2 c = in.object_pos.xy - float2(0.0, 1.9);   // disc center (y midpoint)
+            // SWIRL — multi-layer animated portal, early return.
+            // Object_pos.xy: disc center is (0, 1.9), radius up to 1.4 inside the arch.
+            float2 c = in.object_pos.xy - float2(0.0, 1.9);
             float r = length(c);
             float a = atan2(c.y, c.x);
-            if (r > 1.4) discard_fragment();                  // crop to circle inside arch
+            if (r > 1.4) discard_fragment();
 
-            // Two-arm spiral animated outward
-            float spiral = sin(a * 3.0 + frame.time * 2.0 - r * 4.0);
-            float intensity = 0.5 + 0.5 * spiral;
+            // Layer 1: three-arm fast spiral (the "energy" layer)
+            float spiral1 = sin(a * 3.0 + frame.time * 2.5 - r * 5.0);
+            float energy  = 0.5 + 0.5 * spiral1;
 
-            // Color cycle through magic palette (sky-blue ↔ magenta)
-            float3 colA = float3(0.4, 0.7, 1.4);
-            float3 colB = float3(1.2, 0.4, 1.6);
-            float3 portal = mix(colA, colB, intensity);
+            // Layer 2: counter-rotating slow ring (the "gate" layer)
+            float spiral2 = sin(a * 2.0 - frame.time * 1.2 + r * 3.0);
+            float gate    = 0.5 + 0.5 * spiral2;
+
+            // Combine: energy modulates intensity, gate shifts hue
+            float intensity = mix(energy, energy * gate, 0.5) * 1.2;
+
+            // Color cycle, slower than before, deeper/richer
+            float3 colA = float3(0.30, 0.70, 1.50);     // deep sky-blue
+            float3 colB = float3(1.10, 0.30, 1.50);     // electric magenta
+            float3 colC = float3(0.45, 0.95, 1.10);     // cyan highlight
+            float hueT  = 0.5 + 0.5 * sin(frame.time * 0.6 + a * 0.5);
+            float3 portal = mix(mix(colA, colB, hueT), colC, gate * 0.4);
+
+            // Outward energy pulse — bright ring expanding from center
+            float pulseR = fract(frame.time * 0.4);
+            float pulseRing = exp(-pow((r / 1.3 - pulseR) * 6.0, 2.0)) * 0.7;
 
             // Soft circular fade at the rim
-            float fade = 1.0 - smoothstep(1.05, 1.40, r);
-            // Base glow that fills even the dim parts of the swirl
-            float3 baseGlow = float3(0.10, 0.30, 0.65) * fade;
+            float fade = 1.0 - smoothstep(1.00, 1.40, r);
+            // Strong base glow so even the dimmest cells stay luminous
+            float3 baseGlow = float3(0.18, 0.40, 0.85) * fade;
 
-            return float4(portal * intensity * 2.5 * fade + baseGlow, 1.0);
+            float3 final = portal * intensity * 2.8 * fade
+                         + baseGlow
+                         + float3(1.4, 1.6, 2.0) * pulseRing * fade;
+            return float4(final, 1.0);
         }
         // Stone columns of the arch — cooler enchanted-stone tint
         float fbm = fbm3(in.world_pos * 1.2);

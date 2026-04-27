@@ -33,6 +33,21 @@ fn rng_radius(r_min: f32, r_max: f32) f32 {
     return std.math.sqrt(rng_range(r_min * r_min, r_max * r_max));
 }
 
+// ── Path geometry — MUST match the curve formula in shaders/world.metal ──────
+// Sin-wave centerline that pinches to x=0 at both endpoints (z=0 and z=-100).
+fn path_center_x(z: f32) f32 {
+    const t = std.math.clamp(-z / 100.0, 0.0, 1.0);
+    const env = 4.0 * t * (1.0 - t);
+    return env * (8.0 * std.math.sin(z * 0.06) + 3.0 * std.math.sin(z * 0.15));
+}
+
+// Distance from a point (x, z) to the path. Returns large value outside the
+// active path z-range, so callers can use a single threshold for clearing.
+fn dist_to_path(x: f32, z: f32) f32 {
+    if (z > 4.0 or z < -104.0) return 9999.0;
+    return @abs(x - path_center_x(z));
+}
+
 // ── C-exported API (Swift calls these) ───────────────────────────────────────
 
 export fn game_init() void {
@@ -68,13 +83,23 @@ export fn game_init() void {
         _ = psys.spawn_emitter(e);
     }
 
-    // Inner forest: truly random positions in annulus r=[20, 128]
-    // rng_radius samples r² uniformly so density is even across the area
+    // Inner forest: truly random positions in annulus r=[20, 128].
+    // Reject positions that fall inside the path clearing (within 8m of the
+    // path centerline) so the trail to the portal stays open.
     for (0..140) |ti| {
-        const angle = rng_f32() * 2.0 * std.math.pi;
-        const r     = rng_radius(20.0, 128.0);
+        var angle = rng_f32() * 2.0 * std.math.pi;
+        var r     = rng_radius(20.0, 128.0);
+        var px = std.math.cos(angle) * r;
+        var pz = std.math.sin(angle) * r;
+        var attempts: u32 = 0;
+        while (dist_to_path(px, pz) < 8.0 and attempts < 8) : (attempts += 1) {
+            angle = rng_f32() * 2.0 * std.math.pi;
+            r     = rng_radius(20.0, 128.0);
+            px = std.math.cos(angle) * r;
+            pz = std.math.sin(angle) * r;
+        }
         const te    = world.spawn();
-        world.pos[te]    = Vec3{ .x = std.math.cos(angle) * r, .y = 0, .z = std.math.sin(angle) * r };
+        world.pos[te]    = Vec3{ .x = px, .y = 0, .z = pz };
         world.mesh_id[te]= if (rng_u32() % 3 == 0) 4 else 2;
         world.vel[te]    = Vec3.zero;
         world.radius[te] = 0.9;
@@ -117,11 +142,21 @@ export fn game_init() void {
     }
 
     // Rocks: random scatter across the map, avoid the very center clearing
+    // and the path corridor.
     for (0..70) |_| {
-        const angle = rng_f32() * 2.0 * std.math.pi;
-        const rr    = rng_radius(6.0, 125.0);
+        var angle = rng_f32() * 2.0 * std.math.pi;
+        var rr    = rng_radius(6.0, 125.0);
+        var px = std.math.cos(angle) * rr;
+        var pz = std.math.sin(angle) * rr;
+        var attempts: u32 = 0;
+        while (dist_to_path(px, pz) < 6.0 and attempts < 6) : (attempts += 1) {
+            angle = rng_f32() * 2.0 * std.math.pi;
+            rr    = rng_radius(6.0, 125.0);
+            px = std.math.cos(angle) * rr;
+            pz = std.math.sin(angle) * rr;
+        }
         const re    = world.spawn();
-        world.pos[re]    = Vec3{ .x = std.math.cos(angle) * rr, .y = 0, .z = std.math.sin(angle) * rr };
+        world.pos[re]    = Vec3{ .x = px, .y = 0, .z = pz };
         world.mesh_id[re]= 5;
         world.vel[re]    = Vec3.zero;
         world.radius[re] = 0.4;
@@ -130,12 +165,22 @@ export fn game_init() void {
         world.scale[re]  = rng_range(0.35, 1.1);
     }
 
-    // Flowers: random scatter
+    // Flowers: random scatter. Stay slightly off the path so they don't
+    // get walked over visually.
     for (0..60) |fi2| {
-        const angle = rng_f32() * 2.0 * std.math.pi;
-        const fr    = rng_radius(5.0, 120.0);
+        var angle = rng_f32() * 2.0 * std.math.pi;
+        var fr    = rng_radius(5.0, 120.0);
+        var px = std.math.cos(angle) * fr;
+        var pz = std.math.sin(angle) * fr;
+        var attempts: u32 = 0;
+        while (dist_to_path(px, pz) < 5.0 and attempts < 6) : (attempts += 1) {
+            angle = rng_f32() * 2.0 * std.math.pi;
+            fr    = rng_radius(5.0, 120.0);
+            px = std.math.cos(angle) * fr;
+            pz = std.math.sin(angle) * fr;
+        }
         const fe    = world.spawn();
-        world.pos[fe]    = Vec3{ .x = std.math.cos(angle) * fr, .y = 0, .z = std.math.sin(angle) * fr };
+        world.pos[fe]    = Vec3{ .x = px, .y = 0, .z = pz };
         world.mesh_id[fe]= 6;
         world.vel[fe]    = Vec3.zero;
         world.radius[fe] = 0.2;
@@ -193,6 +238,25 @@ export fn game_init() void {
         world.team[e]    = 11;            // tower stone (no existing team uses 11)
         world.hp[e]      = 9999;
         world.radius[e]  = 1.5;
+        world.vel[e]     = Vec3.zero;
+    }
+
+    // Path-side lantern torches — alternate sides every ~12m along the curving path
+    // so the player has lit waypoints leading them toward the gate.
+    const lantern_count: usize = 8;
+    var li: usize = 0;
+    while (li < lantern_count) : (li += 1) {
+        const t = (@as(f32, @floatFromInt(li)) + 0.5) / @as(f32, @floatFromInt(lantern_count));
+        const z = -100.0 * t;
+        const cx = path_center_x(z);
+        const side: f32 = if (li % 2 == 0) 1.0 else -1.0;
+        const e = world.spawn();
+        world.pos[e]     = Vec3{ .x = cx + side * 5.0, .y = 0, .z = z };
+        world.mesh_id[e] = 9;          // existing torch mesh
+        world.scale[e]   = rng_range(1.1, 1.3);
+        world.team[e]    = 12;          // dark wood color
+        world.hp[e]      = 9999;
+        world.radius[e]  = 0.2;
         world.vel[e]     = Vec3.zero;
     }
 
