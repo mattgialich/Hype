@@ -768,6 +768,36 @@ export fn game_get_player_level() u32 {
     return player.level;
 }
 
+// SpellState — packed per-spell progression + readiness for the HUD.
+// 4 spells × 12 bytes = 48 bytes. Index order matches the Skill enum:
+// 0=fireball, 1=lightning_strike, 2=ice_nova, 3=dash.
+const SpellState = extern struct {
+    level:       u32, // 1..SPELL_MAX_LEVEL
+    xp:          u32, // current xp toward next level
+    xp_to_next:  u32, // threshold for level → level+1; 0 if maxed
+};
+
+// Fills 4 SpellState entries (48 bytes total) for the HUD's spell-level display.
+export fn game_get_spell_state(buf: [*]u8) void {
+    const player_mod = @import("game/player.zig");
+    const states: [*]SpellState = @ptrCast(@alignCast(buf));
+    for (0..4) |i| {
+        const lvl = player.spell_level[i];
+        const xp  = player.spell_xp[i];
+        const to_next: u32 = if (lvl >= player_mod.SPELL_MAX_LEVEL)
+            0
+        else
+            // Threshold table is private — recompute the same formula:
+            // SPELL_XP_THRESHOLDS[lvl - 1] from player.zig (200, 400, ..., 1800)
+            200 * @as(u32, lvl);
+        states[i] = .{
+            .level      = @intCast(lvl),
+            .xp         = xp,
+            .xp_to_next = to_next,
+        };
+    }
+}
+
 // Swift pushes the parsed total of all allocated skill-tree bonuses here.
 // Layout: 64-byte SkillBonuses struct (16 × f32). See skill_bonuses.zig.
 export fn game_set_skill_bonuses(buf: [*]const u8) void {

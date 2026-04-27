@@ -13,7 +13,33 @@ pub const PLAYER_RADIUS: f32 = 0.4;
 pub const BASE_HP_MAX:   f32 = 200;
 pub const BASE_MANA_MAX: f32 = 100;
 pub const BASE_MANA_REGEN: f32 = 5.0; // MP/sec
-pub const BASE_LIGHTNING_DMG: f32 = 30;
+
+// ── Per-spell base values ────────────────────────────────────────────────────
+// The damage / cost / cooldown / aoe before any modifiers (skill tree, spell
+// level). Order matches the Skill enum: fireball, lightning, ice_nova, dash.
+pub const BASE_LIGHTNING_DMG:    f32 = 30;
+pub const BASE_FIREBALL_DMG:     f32 = 22;   // per-enemy hit; AoE compensates
+pub const BASE_FIREBALL_RADIUS:  f32 = 4.0;  // metres
+pub const BASE_MANA_COSTS = [4]f32{ 30, 15, 35, 10 };  // fireball, lightning, ice_nova, dash
+pub const BASE_COOLDOWNS  = [4]f32{ 1.2, 0.0, 5.0, 2.0 };
+
+// ── Spell level system ───────────────────────────────────────────────────────
+// Each spell tracks its own XP and level (1..SPELL_MAX_LEVEL). Spell XP is
+// accumulated as damage dealt with that spell. Level scales the spell's intrinsic
+// power; skill-tree bonuses still apply on top. Two progression axes (player
+// level + per-spell level) keep the late game varied: a player who grinds with
+// only one spell maxes that spell fast but the others stay low.
+pub const SPELL_MAX_LEVEL:             u8  = 10;
+pub const SPELL_LEVEL_DMG_PCT:         f32 = 0.20;  // +20%/lvl on base damage
+pub const SPELL_LEVEL_MANA_REDUCE_PCT: f32 = 0.03;  // -3%/lvl mana cost
+pub const SPELL_LEVEL_CD_REDUCE_PCT:   f32 = 0.02;  // -2%/lvl cooldown
+pub const SPELL_LEVEL_AOE_PCT:         f32 = 0.05;  // +5%/lvl aoe radius
+
+// XP-to-next-level table. Threshold[L-1] is the spell-XP needed to go from L → L+1.
+// Spell XP = damage dealt rounded down. Total to max level 10: sum = 9000 dmg.
+const SPELL_XP_THRESHOLDS = [9]u32{
+    200, 400, 600, 800, 1000, 1200, 1400, 1600, 1800,
+};
 
 // Tiny xorshift32 for crit rolls (independent stream from main.zig's rng).
 var _crit_rng: u32 = 0x517CC1B7;
@@ -48,6 +74,10 @@ pub const Player = struct {
     level: u8 = 1,
     bonuses: SkillBonuses = .{},
 
+    // Per-spell level progression (independent of player level).
+    spell_level: [4]u8  = [_]u8{1}  ** 4,
+    spell_xp:    [4]u32 = [_]u32{0} ** 4,
+
     pub fn init(world: *World) Player {
         const e = world.spawn();
         world.pos[e]     = Vec3{ .x = 0, .y = 0, .z = 0 };
@@ -58,6 +88,49 @@ pub const Player = struct {
         world.mesh_id[e] = 1; // mesh slot 1 = hero model
         world.scale[e]   = 2.0;
         return .{ .entity = e };
+    }
+
+    // ── Spell-level multipliers ──────────────────────────────────────────────
+    // All read spell_level[idx] - 1 as the "level above 1" so a level-1 spell
+    // gets a 1.0× multiplier (no scaling). Saturating max() floor keeps mana /
+    // cooldown reductions from going below half their base — late-game spells
+    // are stronger but never trivialise the resource cost.
+
+    inline fn lvl_above_one(self: *const Player, idx: usize) f32 {
+        return @as(f32, @floatFromInt(self.spell_level[idx] - 1));
+    }
+
+    pub fn spell_dmg_mult(self: *const Player, idx: usize) f32 {
+        return 1.0 + lvl_above_one(self, idx) * SPELL_LEVEL_DMG_PCT;
+    }
+
+    pub fn spell_mana_cost(self: *const Player, idx: usize) f32 {
+        const reduction = lvl_above_one(self, idx) * SPELL_LEVEL_MANA_REDUCE_PCT;
+        return BASE_MANA_COSTS[idx] * @max(0.5, 1.0 - reduction);
+    }
+
+    pub fn spell_cooldown(self: *const Player, idx: usize) f32 {
+        const reduction = lvl_above_one(self, idx) * SPELL_LEVEL_CD_REDUCE_PCT;
+        return BASE_COOLDOWNS[idx] * @max(0.5, 1.0 - reduction);
+    }
+
+    pub fn spell_aoe_mult(self: *const Player, idx: usize) f32 {
+        return 1.0 + lvl_above_one(self, idx) * SPELL_LEVEL_AOE_PCT;
+    }
+
+    // Award spell XP after a successful hit. Damage dealt → spell XP (rounded).
+    // Auto-levels the spell while the threshold is met. Cap at SPELL_MAX_LEVEL.
+    pub fn add_spell_xp(self: *Player, skill: Skill, dmg_dealt: f32) void {
+        if (dmg_dealt < 1.0) return;
+        const idx = @intFromEnum(skill);
+        if (self.spell_level[idx] >= SPELL_MAX_LEVEL) return;
+        self.spell_xp[idx] += @as(u32, @intFromFloat(@max(0, dmg_dealt)));
+        while (self.spell_level[idx] < SPELL_MAX_LEVEL) {
+            const threshold = SPELL_XP_THRESHOLDS[self.spell_level[idx] - 1];
+            if (self.spell_xp[idx] < threshold) break;
+            self.spell_xp[idx] -= threshold;
+            self.spell_level[idx] += 1;
+        }
     }
 
     // Recompute hp_max / mana_max from bonuses, preserving the *delta* on
@@ -114,13 +187,15 @@ pub const Player = struct {
         const idx = @intFromEnum(skill);
         if (self.skill_cd[idx] > 0) return false;
 
-        const mana_costs = [4]f32{ 20, 15, 35, 10 };
-        if (self.mana < mana_costs[idx]) return false;
-        self.mana -= mana_costs[idx];
+        // Spell level reduces both mana cost and cooldown — the per-spell
+        // helpers honour the SPELL_LEVEL_*_REDUCE_PCT constants and floor at 50%.
+        const mana_cost = self.spell_mana_cost(idx);
+        if (self.mana < mana_cost) return false;
+        self.mana -= mana_cost;
 
-        const cooldowns = [4]f32{ 0.8, 0.0, 5.0, 2.0 }; // lightning has no cooldown — MP-gated only
+        const cd_base = self.spell_cooldown(idx);
         const cd_mult = @max(0.1, 1.0 - self.bonuses.cast_speed_pct - self.bonuses.cooldown_pct);
-        self.skill_cd[idx] = cooldowns[idx] * cd_mult;
+        self.skill_cd[idx] = cd_base * cd_mult;
 
         switch (skill) {
             .lightning_strike => {
@@ -148,7 +223,7 @@ pub const Player = struct {
 
                 // No enemy in range — refund mana and cooldown, skip
                 if (best_enemy == std.math.maxInt(u16)) {
-                    self.mana += mana_costs[idx];
+                    self.mana += mana_cost;
                     self.skill_cd[idx] = 0;
                     return false;
                 }
@@ -190,8 +265,11 @@ pub const Player = struct {
                 };
 
                 // Spell damage with crit roll. Lightning is a spell, so both
-                // damage_pct and spell_damage_pct apply.
-                var dmg = (BASE_LIGHTNING_DMG + self.bonuses.damage_flat) *
+                // damage_pct and spell_damage_pct apply. Spell-level multiplier
+                // boosts the base damage BEFORE the global skill-tree percentages
+                // so the two scaling axes compound properly (multiplicative).
+                const spell_mult = self.spell_dmg_mult(idx);
+                var dmg = (BASE_LIGHTNING_DMG * spell_mult + self.bonuses.damage_flat) *
                     (1.0 + self.bonuses.damage_pct + self.bonuses.spell_damage_pct);
                 var was_crit = false;
                 if (crit_roll_unit() < self.bonuses.crit_chance_pct) {
@@ -199,6 +277,7 @@ pub const Player = struct {
                     was_crit = true;
                 }
                 world.hp[best_enemy] -= dmg;
+                self.add_spell_xp(skill, dmg);
                 // Crits get a longer red flash and bigger camera kick.
                 const flash_t: f32 = if (was_crit) 0.28 else 0.18;
                 const kick_t:  f32 = if (was_crit) 0.40 else 0.18;
@@ -233,10 +312,108 @@ pub const Player = struct {
                     };
                 }
             },
-            else => {},
+            .fireball => {
+                // AoE explosion at the target Vec3. Hits every enemy within the
+                // (level-scaled) radius. Each enemy rolls crit independently so
+                // a fireball into a pack can have a couple of crit-flagged hits.
+                const MAX_E = @import("entity.zig").MAX_ENTITIES;
+                const radius = BASE_FIREBALL_RADIUS * self.spell_aoe_mult(idx);
+                const radius_sq = radius * radius;
+                const spell_mult = self.spell_dmg_mult(idx);
+                const base_dmg = (BASE_FIREBALL_DMG * spell_mult + self.bonuses.damage_flat) *
+                    (1.0 + self.bonuses.damage_pct + self.bonuses.spell_damage_pct);
+
+                // Visual impact ring at the explosion point — reuses mesh 28
+                // (the lightning impact ring) which the shader already animates
+                // as an expanding disc tied to its hp-as-lifetime.
+                const ring = world.spawn();
+                world.pos[ring]      = Vec3{ .x = target.x, .y = 0.05, .z = target.z };
+                world.mesh_id[ring]  = 28;
+                world.scale[ring]    = radius * 0.5;
+                world.team[ring]     = 10;
+                world.hp[ring]       = 0.5;
+                world.hp_max[ring]   = 0.5;
+                world.fx_flags[ring] = 0;
+                world.rot_y[ring]    = 0;
+                world.radius[ring]   = 0.1;
+
+                // Particle burst at the impact point — main.zig drains the
+                // single-slot mailbox each frame; we'll over-write it for the
+                // most recent kill below if we get one.
+                @import("../renderer/particles.zig").pending_burst = .{
+                    .kind = .fire,
+                    .pos  = Vec3{ .x = target.x, .y = 0.5, .z = target.z },
+                };
+
+                var any_hit = false;
+                var total_dmg_dealt: f32 = 0;
+                var killed_pos: Vec3 = Vec3.zero;
+                var any_kill = false;
+                for (0..MAX_E) |i| {
+                    const eid: u16 = @intCast(i);
+                    if (!world.alive[eid] or world.team[eid] != 1) continue;
+                    const ex = world.pos[eid].x - target.x;
+                    const ez = world.pos[eid].z - target.z;
+                    const dsq = ex * ex + ez * ez;
+                    if (dsq > radius_sq) continue;
+
+                    var dmg = base_dmg;
+                    var was_crit = false;
+                    if (crit_roll_unit() < self.bonuses.crit_chance_pct) {
+                        dmg *= 1.5 + self.bonuses.crit_damage_pct;
+                        was_crit = true;
+                    }
+                    world.hp[eid] -= dmg;
+                    total_dmg_dealt += dmg;
+                    any_hit = true;
+
+                    const flash_t: f32 = if (was_crit) 0.28 else 0.18;
+                    world.hit_flash[eid] = flash_t;
+
+                    // Outward knockback from explosion centre, plus a pop up.
+                    const klen = std.math.sqrt(dsq);
+                    var kx: f32 = 0; var kz: f32 = 0;
+                    if (klen > 0.01) { kx = ex / klen; kz = ez / klen; }
+                    world.vel[eid].x += kx * 5.0;
+                    world.vel[eid].z += kz * 5.0;
+                    world.vel[eid].y += 3.0;
+
+                    if (world.hp[eid] <= 0 and world.death_t[eid] == 0) {
+                        const cfg = @import("enemy_config.zig").get_by_mesh(world.mesh_id[eid]);
+                        self.on_kill(if (cfg) |c| c.xp_reward else 10);
+                        world.death_t[eid] = 0.001;
+                        world.team[eid]    = 99;
+                        world.vel[eid].y   = 6.0;
+                        any_kill   = true;
+                        killed_pos = world.pos[eid];
+                    }
+                }
+
+                if (any_hit) {
+                    self.add_spell_xp(skill, total_dmg_dealt);
+                    const kick_t: f32 = if (any_kill) 0.45 else 0.30;
+                    renderer_mod.pending_kick = @max(renderer_mod.pending_kick, kick_t);
+                    if (any_kill) {
+                        @import("../renderer/particles.zig").pending_burst = .{
+                            .kind = .death_burst,
+                            .pos  = killed_pos,
+                        };
+                    }
+                } else {
+                    // Whiffed — refund partial mana so the player isn't punished
+                    // for tapping near no enemies.
+                    self.mana += mana_cost * 0.5;
+                }
+            },
+            else => {
+                // ice_nova and dash not yet implemented — refund mana + cd so
+                // the player isn't penalised for misclicking on an unwired skill.
+                self.mana += mana_cost;
+                self.skill_cd[idx] = 0;
+                return false;
+            },
         }
 
-        _ = target;
         return true;
     }
 
