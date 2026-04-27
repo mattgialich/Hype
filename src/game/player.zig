@@ -6,6 +6,7 @@ const Vec3 = @import("../math/vec.zig").Vec3;
 const World = @import("entity.zig").World;
 const EntityId = @import("entity.zig").EntityId;
 const SkillBonuses = @import("skill_bonuses.zig").SkillBonuses;
+const renderer_mod = @import("../renderer/metal.zig");
 
 pub const PLAYER_SPEED: f32 = 10.0; // units/sec
 pub const PLAYER_RADIUS: f32 = 0.4;
@@ -167,18 +168,69 @@ pub const Player = struct {
                 world.rot_y[bolt]    = 0;
                 world.radius[bolt]   = 0.1;
 
+                // Impact ring — flat disc that expands and fades at the strike
+                // point. Mesh id 28 is the ring; main.zig animates it via the
+                // hp-as-lifetime convention and the shader scales it from uv.x.
+                const ring = world.spawn();
+                world.pos[ring]      = Vec3{ .x = hit_x, .y = enemy_y + 0.05, .z = hit_z };
+                world.mesh_id[ring]  = 28;
+                world.scale[ring]    = 1.0;
+                world.team[ring]     = 10;
+                world.hp[ring]       = 0.45;
+                world.hp_max[ring]   = 0.45;
+                world.fx_flags[ring] = 0;
+                world.rot_y[ring]    = 0;
+                world.radius[ring]   = 0.1;
+
+                // Request a lightning particle burst at the strike point.
+                // main.zig drains the mailbox each frame.
+                @import("../renderer/particles.zig").pending_burst = .{
+                    .kind = .lightning,
+                    .pos  = Vec3{ .x = hit_x, .y = enemy_y, .z = hit_z },
+                };
+
                 // Spell damage with crit roll. Lightning is a spell, so both
                 // damage_pct and spell_damage_pct apply.
                 var dmg = (BASE_LIGHTNING_DMG + self.bonuses.damage_flat) *
                     (1.0 + self.bonuses.damage_pct + self.bonuses.spell_damage_pct);
+                var was_crit = false;
                 if (crit_roll_unit() < self.bonuses.crit_chance_pct) {
                     dmg *= 1.5 + self.bonuses.crit_damage_pct;
+                    was_crit = true;
                 }
                 world.hp[best_enemy] -= dmg;
-                if (world.hp[best_enemy] <= 0) {
+                // Crits get a longer red flash and bigger camera kick.
+                const flash_t: f32 = if (was_crit) 0.28 else 0.18;
+                const kick_t:  f32 = if (was_crit) 0.40 else 0.18;
+                world.hit_flash[best_enemy] = flash_t;
+                renderer_mod.pending_kick = @max(renderer_mod.pending_kick, kick_t);
+                // Outward knockback from caster + tiny upward bounce
+                {
+                    const e_pos = world.pos[best_enemy];
+                    const c_pos = world.pos[self.entity];
+                    var kx = e_pos.x - c_pos.x;
+                    var kz = e_pos.z - c_pos.z;
+                    const klen = std.math.sqrt(kx * kx + kz * kz);
+                    if (klen > 0.01) { kx /= klen; kz /= klen; }
+                    world.vel[best_enemy].x += kx * 6.0;
+                    world.vel[best_enemy].z += kz * 6.0;
+                    world.vel[best_enemy].y += 4.0;
+                }
+                if (world.hp[best_enemy] <= 0 and world.death_t[best_enemy] == 0) {
                     const cfg = @import("enemy_config.zig").get_by_mesh(world.mesh_id[best_enemy]);
                     self.on_kill(if (cfg) |c| c.xp_reward else 10);
-                    world.despawn(best_enemy);
+                    // Mark as dying corpse — main.zig animates the fall, AI skips them.
+                    // team=99 takes the entity out of "team==1 enemy" iteration filters.
+                    world.death_t[best_enemy] = 0.001;
+                    world.team[best_enemy]    = 99;
+                    world.vel[best_enemy].y   = 6.0;     // pop upward then fall
+                    // Stronger camera kick for kills.
+                    renderer_mod.pending_kick = @max(renderer_mod.pending_kick, 0.45);
+                    // Replace the lightning burst with a more dramatic death burst.
+                    @import("../renderer/particles.zig").pending_burst = .{
+                        .kind = .death_burst,
+                        .pos  = world.pos[best_enemy],
+                    };
                 }
             },
             else => {},

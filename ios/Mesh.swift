@@ -756,6 +756,34 @@ func makeLightning(device: MTLDevice) -> (vtx: MTLBuffer, idx: MTLBuffer, count:
         idxs.append(contentsOf: [center, center+1+i, center+2+i])
     }
 
+    // Wide flare base cone — engulfs the enemy at strike point
+    // Base radius 0.45 at y=0, top radius 0.05 at y=0.6
+    let coneSides = 12
+    let baseR: Float = 0.45
+    let topR: Float = 0.05
+    let height: Float = 0.6
+    let baseY: Float = 0.0
+    let topY: Float = 0.6
+    let coneBase = UInt16(verts.count)
+    for i in 0...coneSides {
+        let theta = 2.0 * Float.pi * Float(i) / Float(coneSides)
+        let c = cos(theta), s = sin(theta)
+        // u=0.5 forces every cone fragment into the lightning shader's CORE
+        // branch (white-hot), so the cone reads as a uniform plasma flare
+        // rather than getting the thin core/edge stripe meant for ribbons.
+        verts.append(WorldVertex(px: c * baseR, py: baseY, pz: s * baseR,
+                                 nx: c, ny: 0, nz: s, u: 0.5, v: 0))
+        verts.append(WorldVertex(px: c * topR, py: topY, pz: s * topR,
+                                 nx: c, ny: 0, nz: s, u: 0.5, v: 1))
+    }
+    for i in 0..<UInt16(coneSides) {
+        let a = coneBase + i * 2
+        // Front faces (CCW winding)
+        idxs.append(contentsOf: [a, a + 2, a + 1,  a + 1, a + 2, a + 3])
+        // Back faces (flipped winding so visible from below)
+        idxs.append(contentsOf: [a, a + 1, a + 2,  a + 1, a + 3, a + 2])
+    }
+
     let vBuf = device.makeBuffer(bytes: verts, length: verts.count * MemoryLayout<WorldVertex>.size, options: .storageModeShared)!
     let iBuf = device.makeBuffer(bytes: idxs,  length: idxs.count  * MemoryLayout<UInt16>.size,      options: .storageModeShared)!
     return (vBuf, iBuf, idxs.count)
@@ -1696,5 +1724,59 @@ func makeSkeletonKnight(device: MTLDevice) -> (vtx: MTLBuffer, idx: MTLBuffer, c
     // 32-33: feet (low flat slabs)
     mbCylinder(&v, &i, -0.10, 0, 0.05,  -0.10, 0.05, 0.05, r0: 0.080, r1: 0.080, sides: 5, uBase: 0)
     mbCylinder(&v, &i,  0.10, 0, 0.05,   0.10, 0.05, 0.05, r0: 0.080, r1: 0.080, sides: 5, uBase: 0)
+    return mbBuffers(v, i, device)
+}
+
+// ── New asset 28: Lightning Impact Ring — flat annulus + low dome that
+//    appears at the strike point. The shader (mesh_frag==28u) drives the
+//    expansion/fade animation from frame.time and uv.y so the ring
+//    visually grows then dims over the bolt's 0.45s lifetime.
+//    Inner verts use uBase=0 (inner ring), outer verts uBase=1 (outer ring),
+//    apex of the dome uses uBase=2.
+func makeImpactRing(device: MTLDevice) -> (vtx: MTLBuffer, idx: MTLBuffer, count: Int) {
+    var v: [WorldVertex] = []
+    var i: [UInt16] = []
+    let sides = 28
+    let innerR: Float = 0.30
+    let outerR: Float = 1.30
+    let domeR:  Float = 0.55
+    let domeH:  Float = 0.55
+    let baseY:  Float = 0.0
+
+    // Flat ring (annulus) — alternating inner/outer verts for triangle strip-style indexing
+    let ringBase = UInt16(v.count)
+    for k in 0...sides {
+        let theta = 2.0 * Float.pi * Float(k) / Float(sides)
+        let cx = cos(theta), sz = sin(theta)
+        // Inner edge (uBase=0)
+        v.append(WorldVertex(px: cx * innerR, py: baseY, pz: sz * innerR,
+                             nx: 0, ny: 1, nz: 0, u: 0.0, v: Float(k) / Float(sides)))
+        // Outer edge (uBase=1)
+        v.append(WorldVertex(px: cx * outerR, py: baseY, pz: sz * outerR,
+                             nx: 0, ny: 1, nz: 0, u: 1.0, v: Float(k) / Float(sides)))
+    }
+    for k in 0..<UInt16(sides) {
+        let a = ringBase + k * 2
+        i.append(contentsOf: [a, a + 2, a + 1,  a + 1, a + 2, a + 3])
+        // Back face so it's visible from below
+        i.append(contentsOf: [a, a + 1, a + 2,  a + 1, a + 3, a + 2])
+    }
+
+    // Dome — soft hemisphere of plasma sitting on top of the ring,
+    // marks the actual strike point. Apex uses uBase=2.
+    let domeBase = UInt16(v.count)
+    let apex = UInt16(v.count)
+    v.append(WorldVertex(px: 0, py: baseY + domeH, pz: 0, nx: 0, ny: 1, nz: 0, u: 2.0, v: 1.0))
+    for k in 0...sides {
+        let theta = 2.0 * Float.pi * Float(k) / Float(sides)
+        let cx = cos(theta), sz = sin(theta)
+        v.append(WorldVertex(px: cx * domeR, py: baseY + 0.05, pz: sz * domeR,
+                             nx: cx, ny: 0.5, nz: sz, u: 2.0, v: 0.0))
+    }
+    _ = domeBase
+    for k in 0..<UInt16(sides) {
+        i.append(contentsOf: [apex, apex + 1 + k, apex + 2 + k])
+    }
+
     return mbBuffers(v, i, device)
 }

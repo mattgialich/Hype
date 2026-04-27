@@ -33,6 +33,13 @@ pub const World = struct {
     mesh_id: [MAX_ENTITIES]u16  = undefined,
     fx_flags:[MAX_ENTITIES]u32  = undefined, // bitmask for active visual effects
 
+    // Death state — 0 = alive. > 0 = seconds since killed. main.zig advances
+    // this each frame for corpses; renderer reads it for fall/shrink animation.
+    death_t: [MAX_ENTITIES]f32  = [_]f32{0} ** MAX_ENTITIES,
+    // Brief flash on hit — > 0 = seconds remaining of red flash. Fades down
+    // toward 0 each frame.
+    hit_flash:[MAX_ENTITIES]f32 = [_]f32{0} ** MAX_ENTITIES,
+
     // Free list
     next_free: EntityId = 0,
     count: u16 = 0,
@@ -54,6 +61,8 @@ pub const World = struct {
         world.team[id]    = 1;
         world.mesh_id[id] = 0;
         world.fx_flags[id]= 0;
+        world.death_t[id] = 0;
+        world.hit_flash[id] = 0;
         world.count      += 1;
         world.next_free   = id + 1;
         return id;

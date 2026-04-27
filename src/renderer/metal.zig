@@ -27,6 +27,10 @@ pub const DrawCall = extern struct {
     _pad:         [2]u8 = .{0, 0},
 };
 
+// Cross-module camera-kick mailbox. player.zig writes a desired kick amount
+// here when something dramatic happens; main.zig drains it each frame.
+pub var pending_kick: f32 = 0;
+
 // Camera state — updated each frame, owned by Zig
 pub const Camera = struct {
     target:   Vec3 = Vec3.zero,
@@ -36,9 +40,20 @@ pub const Camera = struct {
     near:     f32  = 0.1,
     far:      f32  = 500.0,
 
+    // Shake: amplitude in world units, decays per frame. Applied as a small
+    // random offset to the eye position when computing the view matrix.
+    shake_amp:   f32 = 0,
+    shake_phase: f32 = 0,
+
     pub fn view_matrix(cam: *const Camera) Mat4 {
-        const eye = cam.target.add(cam.offset);
-        return Mat4.look_at(eye, cam.target, Vec3.up);
+        // Pseudo-random offset driven by shake_phase so it changes per frame.
+        const ph = cam.shake_phase;
+        const sx = std.math.sin(ph * 47.0) * cam.shake_amp;
+        const sz = std.math.cos(ph * 53.0) * cam.shake_amp;
+        const eye_base = cam.target.add(cam.offset);
+        const eye = Vec3{ .x = eye_base.x + sx, .y = eye_base.y, .z = eye_base.z + sz };
+        const tgt = Vec3{ .x = cam.target.x + sx * 0.7, .y = cam.target.y, .z = cam.target.z + sz * 0.7 };
+        return Mat4.look_at(eye, tgt, Vec3.up);
     }
 
     pub fn proj_matrix(cam: *const Camera, aspect: f32) Mat4 {
@@ -48,6 +63,13 @@ pub const Camera = struct {
     pub fn smooth_follow(cam: *Camera, target: Vec3, dt: f32) void {
         const speed = 3.0; // looser follow so the player visibly leads the camera
         cam.target = cam.target.lerp(target, 1.0 - std.math.exp(-speed * dt));
+        // Decay shake exponentially
+        cam.shake_amp *= std.math.exp(-8.0 * dt);
+        cam.shake_phase += dt;
+    }
+
+    pub fn kick(cam: *Camera, amount: f32) void {
+        cam.shake_amp = @max(cam.shake_amp, amount);
     }
 };
 

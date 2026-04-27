@@ -928,6 +928,9 @@ class GameViewController: UIViewController, MTKViewDelegate {
     var knightVBuf:        MTLBuffer!
     var knightIBuf:        MTLBuffer!
     var knightIndexCount:  Int = 0
+    var impactRingVBuf:    MTLBuffer!
+    var impactRingIBuf:    MTLBuffer!
+    var impactRingIndexCount: Int = 0
 
     // Skill button
     var skillButton: UIButton!
@@ -1234,6 +1237,7 @@ class GameViewController: UIViewController, MTKViewDelegate {
                             case 25: return (wispVBuf,        wispIBuf,        wispIndexCount)
                             case 26: return (entVBuf,         entIBuf,         entIndexCount)
                             case 27: return (knightVBuf,      knightIBuf,      knightIndexCount)
+                            case 28: return (impactRingVBuf,  impactRingIBuf,  impactRingIndexCount)
                             default: return (capsuleVBuf,     capsuleIBuf,     capsuleIndexCount)
                             }
                         }()
@@ -1636,6 +1640,8 @@ class GameViewController: UIViewController, MTKViewDelegate {
         entVBuf = env_;         entIBuf = eni;          entIndexCount = enc_
         let (knv, kni, knc) = makeSkeletonKnight(device: device)
         knightVBuf = knv;       knightIBuf = kni;       knightIndexCount = knc
+        let (irv, iri, irc) = makeImpactRing(device: device)
+        impactRingVBuf = irv;   impactRingIBuf = iri;   impactRingIndexCount = irc
 
         // 88-byte DrawCall for the ground: identity model + earthy dark color
         // Layout: float4x4 model (64B) | float4 color (16B) | uint fx_flags (4B) | ushort mesh_id (2B) | uchar2 pad (2B)

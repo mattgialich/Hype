@@ -6,6 +6,7 @@ const std          = @import("std");
 const Vec3         = @import("math/vec.zig").Vec3;
 const World        = @import("game/entity.zig").World;
 const Player       = @import("game/player.zig").Player;
+const renderer_mod_main = @import("renderer/metal.zig");
 const Renderer     = @import("renderer/metal.zig").Renderer;
 const Particles    = @import("renderer/particles.zig");
 const FX           = @import("game/entity.zig").FX;
@@ -417,6 +418,18 @@ export fn game_update(dt: f32) void {
     time += dt;
     player.update(&world, dt);
     renderer.camera.smooth_follow(world.pos[player.entity], dt);
+    // Drain pending camera kick from gameplay events
+    if (renderer_mod_main.pending_kick > 0) {
+        renderer.camera.kick(renderer_mod_main.pending_kick);
+        renderer_mod_main.pending_kick = 0;
+    }
+    // Drain pending particle burst (one-shot fire-and-forget emitter).
+    if (Particles.pending_burst) |pb| {
+        var em = Particles.preset_emitter(pb.kind, pb.pos);
+        _ = psys.spawn_emitter(em);
+        em.active = 0; // one-shot
+        Particles.pending_burst = null;
+    }
 
     // Advance walk_phase only when player is actually moving so legs stop when idle
     const pv  = world.vel[player.entity];
@@ -424,14 +437,55 @@ export fn game_update(dt: f32) void {
     if (spd > 0.5) walk_phase += dt * spd * 0.55;
 
     // Integrate velocity + expire temporary entities (iterate full pool, not just count)
-    for (0..@import("game/entity.zig").MAX_ENTITIES) |i| {
+    const MAX_E_iter = @import("game/entity.zig").MAX_ENTITIES;
+    const GRAVITY: f32 = 18.0;
+    for (0..MAX_E_iter) |i| {
         const id: u16 = @intCast(i);
         if (!world.alive[id]) continue;
         world.pos[id] = world.pos[id].add(world.vel[id].scale(dt));
+        // Hit-flash decay (every alive entity)
+        if (world.hit_flash[id] > 0) {
+            world.hit_flash[id] = @max(0, world.hit_flash[id] - dt);
+        }
         // Lightning bolts: hp repurposed as lifetime — despawn when expired
         if (world.mesh_id[id] == 7) {
             world.hp[id] -= dt;
             if (world.hp[id] <= 0) world.despawn(id);
+        }
+        // Lightning impact ring (mesh_id 28): expanding ring + fade — despawn at 0.45s
+        if (world.mesh_id[id] == 28) {
+            world.hp[id] -= dt;
+            if (world.hp[id] <= 0) world.despawn(id);
+        }
+        // Corpse animation: death_t > 0 means the entity is dying. Apply gravity,
+        // settle to ground, spin while falling. After 1.5s the corpse stays
+        // permanently at the ground as a marker that something died here.
+        if (world.death_t[id] > 0) {
+            world.death_t[id] += dt;
+            // Apply gravity to the corpse so it falls back down after the pop-up
+            world.vel[id].y -= GRAVITY * dt;
+            // Tumble rotation while in the air
+            if (world.pos[id].y > 0.05) {
+                world.rot_y[id] += dt * 6.0;
+            } else {
+                // Settled — clamp to ground, kill velocity, freeze
+                world.pos[id].y = 0.05;
+                world.vel[id]   = Vec3.zero;
+            }
+            // Shrink down to 70% of original scale over the first second
+            const t = @min(1.0, world.death_t[id]);
+            const target_scale = 1.0 - 0.30 * t;
+            // Multiply by per-mesh scale baked in mesh_id field — keep scale[id] but
+            // remember we modify it once. Use a "scale_factor" via repeated multiply
+            // would drift; instead snap to final once at t=1 and skip thereafter.
+            if (world.death_t[id] < 1.05) {
+                // We don't have an "original scale" field, so apply multiplicatively
+                // using a per-step delta. Compute the step that yields the target.
+                const prev_t = world.death_t[id] - dt;
+                const prev_clamped = @max(0, @min(1.0, prev_t));
+                const prev_target = 1.0 - 0.30 * prev_clamped;
+                if (prev_target > 0.001) world.scale[id] *= target_scale / prev_target;
+            }
         }
     }
 
@@ -526,7 +580,7 @@ export fn game_fill_draws(buf: [*]u8, max_bytes: u32) u32 {
             6 => .{ 0.95, 0.30 + hf * 0.40, 0.55 + hf * 0.30, 1.0 },              // flower: pink family
             7 => .{ 0.95, 0.80 + hf * 0.18, 0.10 + hf * 0.35, 1.0 },              // flower: gold/cream
             8  => .{ 0.60 + hf * 0.30, 0.45 + hf * 0.30, 0.90 + hf * 0.10, 1.0 }, // flower: lavender
-            10 => .{ 0.80, 0.90, 1.0,  1.0 },                                        // lightning bolt
+            10 => .{ 0.80, 0.90, 1.0,  1.0 },                                        // lightning bolt + impact ring
             11 => .{ 0.45 + hf * 0.18, 0.42 + hf * 0.16, 0.38 + hf * 0.14, 1.0 },     // tower: warm gray stone
             12 => .{ 0.32 + hf * 0.12, 0.20 + hf * 0.08, 0.10 + hf * 0.04, 1.0 },     // torch: dark wood
             13 => .{ 0.40, 0.45, 0.55, 1.0 },                                          // portal: cool enchanted stone (single entity, no variation)
@@ -551,7 +605,13 @@ export fn game_fill_draws(buf: [*]u8, max_bytes: u32) u32 {
         renderer.push_draw(.{
             .model_matrix = model.m,
             .color        = color,
-            .fx_flags     = world.fx_flags[id],
+            // Pack hit-flash intensity (0..1, decaying from 0.18s lifetime) into
+            // bits 8-15 of fx_flags so the fragment shader can tint enemies red
+            // for a single frame on hit. Bits 0-7 stay for the FX bitmask;
+            // bits 16-31 are populated by the vertex shader from mesh_id.
+            .fx_flags = world.fx_flags[id] | (@as(u32, @intFromFloat(
+                @min(1.0, world.hit_flash[id] * 5.55) * 255.0
+            )) << 8),
             .mesh_id      = world.mesh_id[id],
         });
     }

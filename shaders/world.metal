@@ -439,7 +439,57 @@ fragment float4 frag_world_forward(
         
         // Combine all elements
         float3 color = core + edge + sparkCol + discharge;
-        return float4(color * flicker * banding, 1.0);
+
+        // Base flare boost: the bottom portion (uv.y near 0) is the strike point.
+        // Multiply brightness sharply there so the impact reads as the loudest
+        // moment of the bolt. Falls off above uv.y ~0.25.
+        float baseBoost = 1.0 + 3.5 * smoothstep(0.30, 0.0, in.uv.y);
+        return float4(color * flicker * banding * baseBoost, 1.0);
+    }
+
+    // Lightning impact ring: annulus + low dome at strike point
+    if (mesh_frag == 28u) {
+        if (in.uv.x < 1.5) {
+            // Annulus ring: dynamic shockwave with energy spikes
+            float brightness = 1.0 - in.uv.x;
+            
+            // Inner bright ring
+            if (in.uv.x < 0.15) {
+                brightness = 1.0;
+                float3 inner = float3(7.0, 7.0, 9.0);
+                return float4(inner * brightness, 1.0);
+            }
+            
+            // Hash-driven energy spikes
+            float spikeHash = hash21(float2(in.uv.y * 10.0, frame.time * 15.0));
+            float spike = step(0.95, spikeHash);
+            brightness *= 1.0 + spike * 2.0;
+            
+            // Fast crackling radial pattern
+            float crackle = step(0.7, sin(in.uv.y * 60.0 + frame.time * 50.0));
+            brightness *= 1.0 + crackle * 1.5;
+            
+            // Outer glow falloff
+            if (in.uv.x > 0.85) {
+                float3 outer = float3(0.5, 1.5, 2.0);
+                float falloff = smoothstep(0.85, 1.0, in.uv.x);
+                float3 base = float3(2.0, 3.0, 4.5) * brightness;
+                return float4(mix(base, outer, falloff), 1.0);
+            }
+            
+            float3 color = float3(2.0, 3.0, 4.5) * brightness;
+            return float4(color, 1.0);
+        } else {
+            // Dome: white-hot core with blue base tint
+            float3 color = float3(8.0, 8.0, 10.0);
+            // Blue tint near base
+            if (in.uv.y < 0.3) {
+                float blueTint = smoothstep(0.0, 0.3, in.uv.y);
+                color = mix(color, float3(1.0, 1.5, 3.0), blueTint * 0.5);
+            }
+            float falloff = 0.5 + 0.5 * in.uv.y;
+            return float4(color * falloff, 1.0);
+        }
     }
 
     // Trunk geometry: u in [10, 20) is a bark marker; int(u - 10) = trunk index 0..2
@@ -939,7 +989,14 @@ fragment float4 frag_world_forward(
     float3 diffuse = albedo * float3(1.5, 1.35, 0.90) * max(dot(N, L), 0.0);
     float3 rimback = albedo * float3(0.02, 0.18, 0.06) * max(dot(N, -L), 0.0);
 
-    return float4(ambient + diffuse + rimback + emissive + specular, 1.0);
+    float3 final = ambient + diffuse + rimback + emissive + specular;
+
+    // Hit-flash: bits 8-15 of fx_flags pack a u8 (0..255) intensity. Mix the
+    // final color toward bright red while the flash is active. Decays in Zig.
+    float hit = float((in.fx_flags >> 8u) & 0xFFu) / 255.0;
+    final = mix(final, float3(2.0, 0.30, 0.20), hit * 0.85);
+
+    return float4(final, 1.0);
 }
 
 fragment GBuffer frag_world(VertOut in [[stage_in]]) {

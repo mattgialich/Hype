@@ -37,6 +37,14 @@ pub const GpuParticle = extern struct {
     _pad:     [2]f32 = .{0, 0},
 };
 
+// Cross-module particle-burst mailbox. player.zig (and other gameplay code)
+// writes here when something happens; main.zig drains it once per frame.
+pub const PendingBurst = struct {
+    kind: EmitterPreset,
+    pos:  Vec3,
+};
+pub var pending_burst: ?PendingBurst = null;
+
 pub const EmitterPreset = enum {
     fire,
     ice_nova,
