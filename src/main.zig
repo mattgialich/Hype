@@ -26,6 +26,18 @@ var time:       f32  = 0;
 var walk_phase: f32  = 0;
 var inited:     bool = false;
 
+// ── Zone selector ────────────────────────────────────────────────────────────
+// The active gameplay zone. Swift calls `game_set_zone(N)` from PortalMapView
+// before re-initialising. The boundary-clamp logic in `game_update` dispatches
+// on this. Spawning is still forest-only until per-zone spawn_*_world functions
+// land; switching zones today just changes the player-clamp behaviour.
+pub const Zone = enum(u32) { forest = 0, desert = 1, isles = 2 };
+var current_zone: Zone = .forest;
+
+export fn game_set_zone(zone_id: u32) void {
+    if (zone_id <= 2) current_zone = @enumFromInt(zone_id);
+}
+
 // ── Simple xorshift32 PRNG — seeded at compile time, deterministic but random-looking ──
 var _rng: u32 = 0xA3B7C1D9;
 fn rng_u32() u32 { _rng ^= _rng << 13; _rng ^= _rng >> 17; _rng ^= _rng << 5; return _rng; }
@@ -52,6 +64,115 @@ fn path_center_x(z: f32) f32 {
 fn dist_to_path(x: f32, z: f32) f32 {
     if (z > 4.0 or z < -(PATH_LEN + 4.0)) return 9999.0;
     return @abs(x - path_center_x(z));
+}
+
+// ── Drifting Isles geometry ──────────────────────────────────────────────────
+// Six islands plus walkable bridges between them. The water-clamp logic snaps
+// the player back to last frame's position whenever they leave land, so the
+// player can only traverse the archipelago via bridges and rune-gates.
+// Numerical layout matches docs/drifting_isles.md §2b.
+
+const Island = struct {
+    cx: f32,
+    cz: f32,
+    radius: f32,
+    y_deck: f32, // walkable deck height (0 for ground islands, 60 for Skywatch)
+};
+
+const isles_islands = [_]Island{
+    .{ .cx =    0.0, .cz =    0.0, .radius = 200.0, .y_deck =  0.0 }, // A Lantern Hold
+    .{ .cx =  200.0, .cz = -180.0, .radius = 180.0, .y_deck =  0.0 }, // B Whale's Spine
+    .{ .cx = -220.0, .cz = -260.0, .radius = 170.0, .y_deck =  0.0 }, // C Glasstop
+    .{ .cx =   60.0, .cz = -440.0, .radius = 220.0, .y_deck =  0.0 }, // D The Wreck
+    .{ .cx = -120.0, .cz = -560.0, .radius = 140.0, .y_deck = 60.0 }, // E Skywatch (sky)
+    .{ .cx =   40.0, .cz = -720.0, .radius = 200.0, .y_deck =  0.0 }, // F Far Reach
+};
+
+// Walkable bridges as line-segment corridors with a perpendicular tolerance.
+// `a_y` and `b_y` are the deck heights at each endpoint — the sky-bridge from
+// Skywatch (y=60) to Far Reach (y=0) interpolates linearly between them so
+// the player walks down a smooth slope.
+const Bridge = struct {
+    ax: f32, az: f32,
+    bx: f32, bz: f32,
+    half_width: f32,
+    a_y: f32, b_y: f32,
+};
+
+const isles_bridges = [_]Bridge{
+    // A↔B (driftwood — Lantern Hold east shore to Whale's Spine north shore)
+    .{ .ax = 200.0, .az =  -10.0, .bx =  30.0, .bz = -160.0, .half_width = 3.0, .a_y =  0.0, .b_y =  0.0 },
+    // B↔D (rope bridge — Whale's Spine south shore to Wreck north shore)
+    .{ .ax = 220.0, .az = -340.0, .bx =  80.0, .bz = -380.0, .half_width = 3.0, .a_y =  0.0, .b_y =  0.0 },
+    // E↔F (long sky bridge — Skywatch south plaza dropping to Far Reach north shore)
+    .{ .ax = -100.0, .az = -580.0, .bx =  40.0, .bz = -700.0, .half_width = 3.5, .a_y = 60.0, .b_y =  0.0 },
+};
+
+// Squared distance from a point to a 2D line segment, plus the projection
+// parameter t in [0, 1] for slope interpolation along the bridge.
+fn segment_dist_sq_t(px: f32, pz: f32, ax: f32, az: f32, bx: f32, bz: f32) struct { d2: f32, t: f32 } {
+    const dx = bx - ax;
+    const dz = bz - az;
+    const len_sq = dx * dx + dz * dz;
+    if (len_sq < 0.0001) {
+        const ex = px - ax;
+        const ez = pz - az;
+        return .{ .d2 = ex * ex + ez * ez, .t = 0.0 };
+    }
+    const t_raw = ((px - ax) * dx + (pz - az) * dz) / len_sq;
+    const t = std.math.clamp(t_raw, 0.0, 1.0);
+    const cx = ax + t * dx;
+    const cz = az + t * dz;
+    const ex = px - cx;
+    const ez = pz - cz;
+    return .{ .d2 = ex * ex + ez * ez, .t = t };
+}
+
+// Returns the deck Y at (x, z) if the player is on land or on a bridge,
+// otherwise null. Sloping bridges interpolate between endpoint heights.
+fn isles_safe_deck_y(x: f32, z: f32) ?f32 {
+    inline for (isles_islands) |isl| {
+        const dx = x - isl.cx;
+        const dz = z - isl.cz;
+        if (dx * dx + dz * dz <= isl.radius * isl.radius) return isl.y_deck;
+    }
+    inline for (isles_bridges) |br| {
+        const r = segment_dist_sq_t(x, z, br.ax, br.az, br.bx, br.bz);
+        if (r.d2 <= br.half_width * br.half_width) {
+            return br.a_y * (1.0 - r.t) + br.b_y * r.t;
+        }
+    }
+    return null;
+}
+
+// Pin the player to the local deck height when on safe ground; if they walked
+// off into water, snap back to last frame's position. Called once per frame
+// after position integration when current_zone == .isles.
+fn clamp_player_isles(prev_pos: Vec3) void {
+    const pp = world.pos[player.entity];
+    if (isles_safe_deck_y(pp.x, pp.z)) |y_deck| {
+        // ARPG has no jump, so pinning y to the deck every frame is fine.
+        world.pos[player.entity].y = y_deck;
+    } else {
+        world.pos[player.entity] = prev_pos;
+        world.vel[player.entity] = Vec3.zero;
+    }
+}
+
+// Outer-ring boundary clamp shared by all three zones — pushes the player
+// back inside `radius` from the world origin in the (x, z) plane.
+fn clamp_player_outer_ring(radius: f32) void {
+    const pp = world.pos[player.entity];
+    const dist_sq = pp.x * pp.x + pp.z * pp.z;
+    if (dist_sq > radius * radius) {
+        const dist = std.math.sqrt(dist_sq);
+        world.pos[player.entity] = Vec3{
+            .x = pp.x / dist * radius,
+            .y = pp.y,
+            .z = pp.z / dist * radius,
+        };
+        world.vel[player.entity] = Vec3.zero;
+    }
 }
 
 // Generic scatter spawner for the new asset types (mesh_id 15..24).
@@ -416,6 +537,9 @@ export fn game_init() void {
 
 export fn game_update(dt: f32) void {
     time += dt;
+    // Capture last frame's safe player position BEFORE any movement this frame.
+    // The isles water-clamp uses this to roll back if the player walks off land.
+    const player_prev_pos = world.pos[player.entity];
     player.update(&world, dt);
     renderer.camera.smooth_follow(world.pos[player.entity], dt);
     // Drain pending camera kick from gameplay events
@@ -492,18 +616,19 @@ export fn game_update(dt: f32) void {
     // Enemy AI (all types — dispatched by mesh_id inside enemy_ai.update)
     enemy_ai.update(&world, player.entity, dt, time);
 
-    // Circular map boundary — hard wall stops the player just inside the monolith ring.
-    const MAP_RADIUS: f32 = 280.0;
-    const pp = world.pos[player.entity];
-    const dist_sq = pp.x * pp.x + pp.z * pp.z;
-    if (dist_sq > MAP_RADIUS * MAP_RADIUS) {
-        const dist = std.math.sqrt(dist_sq);
-        world.pos[player.entity] = Vec3{
-            .x = pp.x / dist * MAP_RADIUS,
-            .y = pp.y,
-            .z = pp.z / dist * MAP_RADIUS,
-        };
-        world.vel[player.entity] = Vec3.zero;
+    // Per-zone player boundary clamp.
+    //   forest — outer hard wall just inside the 48-monolith ring (r=280).
+    //   desert — outer hard wall just inside the 64-obelisk ring (r=445).
+    //   isles  — outer wall at r=890 PLUS per-island/bridge water clamp;
+    //            if the player crossed off land into open water this frame,
+    //            snap them back to last frame's safe position.
+    switch (current_zone) {
+        .forest => clamp_player_outer_ring(280.0),
+        .desert => clamp_player_outer_ring(445.0),
+        .isles  => {
+            clamp_player_outer_ring(890.0);
+            clamp_player_isles(player_prev_pos);
+        },
     }
 
     // Sync spark emitter to player
