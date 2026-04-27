@@ -21,7 +21,10 @@ pub const EnemyType = struct {
 // │   mesh_id   │ name_idx │ level │  hp  │ damage │ xp_reward │
 // └─────────────┴──────────┴───────┴──────┴────────┴───────────┘
 pub const types = [_]EnemyType{
-    .{ .mesh_id = 3, .name_idx = 0, .level = 1, .hp_max = 80, .damage = 12, .xp_reward = 25 },
+    .{ .mesh_id =  3, .name_idx = 0, .level =  1, .hp_max =  80, .damage = 12, .xp_reward =  25 }, // Gargoyle
+    .{ .mesh_id = 25, .name_idx = 1, .level =  1, .hp_max =  35, .damage =  8, .xp_reward =  15 }, // Forest Wisp (fast harasser)
+    .{ .mesh_id = 26, .name_idx = 2, .level =  5, .hp_max = 280, .damage = 28, .xp_reward =  80 }, // Tree Ent (slow tank)
+    .{ .mesh_id = 27, .name_idx = 3, .level =  3, .hp_max = 140, .damage = 18, .xp_reward =  45 }, // Skeleton Knight (balanced)
 };
 
 pub fn get_by_mesh(mesh_id: u16) ?*const EnemyType {

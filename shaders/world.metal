@@ -667,6 +667,74 @@ fragment float4 frag_world_forward(
         emissive += float3(1.40, 1.10, 0.55) * pulse * 0.9;
     }
 
+    // ═══ 3 NEW ENEMIES (mesh_id 25..27) ════════════════════════════════════════
+
+    // Forest Wisp — full mesh is emissive ethereal cyan-purple, early-return.
+    // uBase=0 → softer outer parts; uBase=1 → bright inner core/crown/belt;
+    // uBase=2 → orbiting shards with hash-driven phase shift.
+    if (mesh_frag == 25u) {
+        float verticalGlow = saturate((in.object_pos.y - 0.10) / 0.85);
+        float pulse = 0.65 + 0.35 * sin(frame.time * 2.4 + in.object_pos.y * 5.0);
+        // Color cycle: cyan → violet over a slow period
+        float hue = 0.5 + 0.5 * sin(frame.time * 0.7);
+        float3 colA = float3(0.30, 0.85, 1.50);   // cyan
+        float3 colB = float3(0.85, 0.40, 1.50);   // violet
+        float3 base = mix(colA, colB, hue);
+        // Brightness varies by uBase
+        float brightness = 1.6;
+        if (in.uv.x >= 0.95 && in.uv.x < 1.95) brightness = 2.6;     // core/crown/belt
+        else if (in.uv.x >= 1.95 && in.uv.x < 2.95) {                // orbiting shards
+            float shardPhase = sin(frame.time * 3.0 + in.object_pos.x * 7.0 + in.object_pos.z * 7.0);
+            brightness = 2.0 + 0.8 * shardPhase;
+        }
+        float3 final = base * pulse * brightness * (0.6 + 0.4 * verticalGlow)
+                     + float3(0.10, 0.20, 0.55);
+        return float4(final, 1.0);
+    }
+
+    // Tree Ent — bark via existing branch (uBase=10/14); foliage uBase=20-21
+    // gets dense forest green; eye sockets uBase=8 glow amber.
+    if (mesh_frag == 26u) {
+        if (in.uv.x >= 8.0 && in.uv.x < 9.0) {
+            float pulse = 0.75 + 0.25 * sin(frame.time * 1.4);
+            albedo = float3(0.20, 0.10, 0.0);
+            emissive += float3(2.4, 1.30, 0.30) * pulse;
+        } else if (in.uv.x >= 20.0 && in.uv.x < 22.0) {
+            // Foliage / mossy growth (uBase=20 outer cluster, uBase=21 inner)
+            float n = valueNoise3(in.object_pos * 5.0);
+            float3 deep   = float3(0.04, 0.16, 0.05);
+            float3 fresh  = float3(0.10, 0.30, 0.09);
+            albedo = mix(deep, fresh, n);
+            // Slight darker tint on the secondary cluster (uBase=21)
+            if (in.uv.x >= 21.0) albedo *= 0.85;
+        }
+        // else falls to existing bark branch (uBase=10/14 handled above)
+    }
+
+    // Skeleton Knight — bone uBase=0, eye sockets uBase=8 (red glow),
+    // steel uBase=20, shield boss uBase=21 (faint rune emissive).
+    if (mesh_frag == 27u) {
+        if (in.uv.x >= 8.0 && in.uv.x < 9.0) {
+            // Eye sockets — pulsing crimson
+            float pulse = 0.7 + 0.3 * sin(frame.time * 4.5);
+            albedo = float3(0.05, 0.0, 0.0);
+            emissive += float3(2.4, 0.35, 0.18) * pulse;
+        } else if (in.uv.x >= 20.0 && in.uv.x < 21.0) {
+            // Steel: sword, shield, pauldrons — cool gray with subtle high-freq noise
+            float n = valueNoise3(in.object_pos * 12.0);
+            albedo = float3(0.55, 0.58, 0.62) * (0.92 + 0.10 * n);
+        } else if (in.uv.x >= 21.0 && in.uv.x < 22.0) {
+            // Shield boss — faint warm-amber rune emissive
+            float pulse = 0.7 + 0.3 * sin(frame.time * 1.2);
+            albedo = float3(0.40, 0.36, 0.30);
+            emissive += float3(1.10, 0.85, 0.30) * pulse * 0.4;
+        } else {
+            // Bones — cream off-white with subtle yellowing per noise cell
+            float n = valueNoise3(in.object_pos * 7.0);
+            albedo = float3(0.85, 0.82, 0.72) * (0.93 + 0.10 * n);
+        }
+    }
+
     // FX: burning — add fiery emissive pulse
     if (in.fx_flags & 1u) { // BURNING
         float pulse = 0.5 + 0.5 * sin(in.world_pos.y * 4.0 + frame.time * 3.0);

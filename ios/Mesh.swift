@@ -1286,3 +1286,205 @@ func makeShrine(device: MTLDevice) -> (vtx: MTLBuffer, idx: MTLBuffer, count: In
     mbSphere(&v, &i, 0, 0.55, 0, 0.10, slices: 5, rings: 3, uBase: 8)
     return mbBuffers(v, i, device)
 }
+
+// ── Enemy 25: Forest Wisp ─────────────────────────────────────────────────────
+// 20+ design features: outer body + inner core + 4 trailing tendrils + 2 side
+// curls (3-segment each) + 3 orbiting shards + 4-spike crown ring + bottom
+// drifting tail + mid-belt ring + front whisker tendrils + top crown bulb +
+// emissive treatment per part. uBase=0 → wisp shader branch handles all.
+func makeForestWisp(device: MTLDevice) -> (vtx: MTLBuffer, idx: MTLBuffer, count: Int) {
+    var v: [WorldVertex] = []
+    var i: [UInt16] = []
+    // 1: outer body sphere
+    mbSphere(&v, &i, 0, 0.55, 0, 0.28, slices: 8, rings: 6, uBase: 0)
+    // 2: inner core sphere (smaller, brighter via shader y-position lookup)
+    mbSphere(&v, &i, 0, 0.55, 0, 0.13, slices: 6, rings: 4, uBase: 1)
+    // 3: top crown bulb
+    mbSphere(&v, &i, 0, 0.86, 0, 0.07, slices: 4, rings: 3, uBase: 1)
+    // 4-7: 4 trailing tendrils (downward tapering cylinders, varied angles)
+    let tendrilOff: [(Float, Float)] = [(0.10, 0.0), (-0.08, 0.05), (0.05, -0.10), (-0.06, -0.05)]
+    for t in tendrilOff {
+        mbCylinder(&v, &i, t.0 * 0.6, 0.45, t.1 * 0.6,  t.0, 0.05, t.1,
+                   r0: 0.04, r1: 0.005, sides: 4, uBase: 0)
+    }
+    // 8-9: two S-curve side curls (3-segment each)
+    mbCylinder(&v, &i,  0.28, 0.55,  0.0,   0.42, 0.65, -0.06, r0: 0.04, r1: 0.025, sides: 4, uBase: 0)
+    mbCylinder(&v, &i,  0.42, 0.65, -0.06,  0.50, 0.50, -0.16, r0: 0.025, r1: 0.012, sides: 4, uBase: 0)
+    mbCylinder(&v, &i,  0.50, 0.50, -0.16,  0.45, 0.32, -0.10, r0: 0.012, r1: 0.0, sides: 3, uBase: 0)
+    mbCylinder(&v, &i, -0.28, 0.55,  0.0,  -0.42, 0.65,  0.06, r0: 0.04, r1: 0.025, sides: 4, uBase: 0)
+    mbCylinder(&v, &i, -0.42, 0.65,  0.06, -0.50, 0.50,  0.16, r0: 0.025, r1: 0.012, sides: 4, uBase: 0)
+    mbCylinder(&v, &i, -0.50, 0.50,  0.16, -0.45, 0.32,  0.10, r0: 0.012, r1: 0.0, sides: 3, uBase: 0)
+    // 10-12: orbiting shards (small spheres at fixed positions around the body)
+    mbSphere(&v, &i,  0.36, 0.78,  0.10, 0.045, slices: 4, rings: 3, uBase: 2)
+    mbSphere(&v, &i, -0.30, 0.50, -0.20, 0.045, slices: 4, rings: 3, uBase: 2)
+    mbSphere(&v, &i,  0.20, 0.40,  0.32, 0.045, slices: 4, rings: 3, uBase: 2)
+    // 13-16: crown ring of 4 small upward spikes
+    for k in 0..<4 {
+        let a = Float.pi * 2.0 * Float(k) / 4.0
+        let cx = cos(a) * 0.16
+        let cz = sin(a) * 0.16
+        mbCylinder(&v, &i, cx, 0.78, cz, cx * 1.4, 0.92, cz * 1.4,
+                   r0: 0.025, r1: 0.0, sides: 3, uBase: 1)
+    }
+    // 17: drifting bottom tail (long thin cylinder fading to nothing)
+    mbCylinder(&v, &i, 0, 0.30, 0,  0, -0.10, 0.0, r0: 0.05, r1: 0.0, sides: 4, uBase: 0)
+    // 18: mid-belt ring (thin equator band around body)
+    for k in 0..<8 {
+        let a0 = Float.pi * 2.0 * Float(k) / 8.0
+        let a1 = Float.pi * 2.0 * Float(k + 1) / 8.0
+        mbCylinder(&v, &i, cos(a0) * 0.30, 0.55, sin(a0) * 0.30,
+                          cos(a1) * 0.30, 0.55, sin(a1) * 0.30,
+                          r0: 0.012, r1: 0.012, sides: 3, uBase: 1)
+    }
+    // 19-20: two forward whisker tendrils (front-facing curls)
+    mbCylinder(&v, &i,  0.05, 0.60, -0.25,  0.10, 0.55, -0.45, r0: 0.020, r1: 0.005, sides: 3, uBase: 0)
+    mbCylinder(&v, &i, -0.05, 0.60, -0.25, -0.10, 0.55, -0.45, r0: 0.020, r1: 0.005, sides: 3, uBase: 0)
+    return mbBuffers(v, i, device)
+}
+
+// ── Enemy 26: Tree Ent ───────────────────────────────────────────────────────
+// 20+ design features: 3-segment trunk + 2 root legs + 6 toe roots + 2 multi-
+// segment arms + 6 finger claws + head + 2 glowing eyes + knot mouth + 2
+// shoulder mossy growths + 5 crown branches + 5 foliage clusters + 4 hanging
+// vines + 3 spine knots + beard moss. Bark via uBase=10 (existing branch),
+// foliage uBase=20-21, eyes uBase=8.
+func makeTreeEnt(device: MTLDevice) -> (vtx: MTLBuffer, idx: MTLBuffer, count: Int) {
+    var v: [WorldVertex] = []
+    var i: [UInt16] = []
+    // 1-3: trunk lower / mid / upper (slight bend)
+    mbCylinder(&v, &i, 0, 0,    0,    0.05, 1.20, 0.05, r0: 0.40, r1: 0.34, sides: 6, uBase: 10)
+    mbCylinder(&v, &i, 0.05, 1.20, 0.05, -0.05, 2.10, 0.10, r0: 0.34, r1: 0.28, sides: 6, uBase: 10)
+    mbCylinder(&v, &i, -0.05, 2.10, 0.10, 0.0,  2.85, 0.05, r0: 0.28, r1: 0.22, sides: 6, uBase: 10)
+    // 4-5: root legs splayed outward
+    mbCylinder(&v, &i,  0,    0,  0,   0.55, 0,  0.30, r0: 0.20, r1: 0.16, sides: 5, uBase: 10)
+    mbCylinder(&v, &i,  0,    0,  0,  -0.55, 0, -0.30, r0: 0.20, r1: 0.16, sides: 5, uBase: 10)
+    // 6-11: 3 toe roots per leg (small angled cones from each foot)
+    for sx: Float in [-1, 1] {
+        let footX = sx * 0.55
+        let footZ = sx * 0.30
+        for k in 0..<3 {
+            let off = Float(k - 1) * 0.13
+            mbCylinder(&v, &i, footX, 0, footZ + off,
+                       footX + sx * 0.16, 0.0, footZ + off + sx * 0.10,
+                       r0: 0.07, r1: 0.0, sides: 3, uBase: 10)
+        }
+    }
+    // 12-13: upper arms
+    mbCylinder(&v, &i, -0.32, 2.20,  0.05,  -0.65, 1.60,  0.20, r0: 0.13, r1: 0.10, sides: 5, uBase: 10)
+    mbCylinder(&v, &i,  0.32, 2.20,  0.05,   0.65, 1.60,  0.20, r0: 0.13, r1: 0.10, sides: 5, uBase: 10)
+    // 14-15: lower arms
+    mbCylinder(&v, &i, -0.65, 1.60,  0.20,  -0.85, 1.05,  0.30, r0: 0.10, r1: 0.07, sides: 5, uBase: 10)
+    mbCylinder(&v, &i,  0.65, 1.60,  0.20,   0.85, 1.05,  0.30, r0: 0.10, r1: 0.07, sides: 5, uBase: 10)
+    // 16-21: 3 finger claws per hand, splayed
+    for sx: Float in [-1, 1] {
+        let hx = sx * 0.85
+        let hy: Float = 1.05
+        let hz: Float = 0.30
+        for k in 0..<3 {
+            let off = Float(k - 1) * 0.07
+            mbCylinder(&v, &i, hx + off, hy, hz,
+                       hx + off + sx * 0.10, hy - 0.18, hz + 0.10,
+                       r0: 0.045, r1: 0.0, sides: 3, uBase: 10)
+        }
+    }
+    // 22: head sphere on top of trunk
+    mbSphere(&v, &i, 0, 3.05, 0.05, 0.32, slices: 8, rings: 6, uBase: 10)
+    // 23-24: deep glowing eye sockets (uBase=8 → emissive amber in shader)
+    mbSphere(&v, &i, -0.12, 3.10, -0.20, 0.045, slices: 4, rings: 3, uBase: 8)
+    mbSphere(&v, &i,  0.12, 3.10, -0.20, 0.045, slices: 4, rings: 3, uBase: 8)
+    // 25: knot mouth (small dark hole, uBase=10 keeps it bark-toned)
+    mbCylinder(&v, &i, 0, 2.95, -0.22,  0, 2.95, -0.30, r0: 0.06, r1: 0.04, sides: 4, uBase: 10)
+    // 26-27: shoulder mossy growths (uBase=20 = foliage shader branch)
+    mbSphere(&v, &i, -0.25, 2.55, 0.10, 0.18, slices: 6, rings: 4, uBase: 20)
+    mbSphere(&v, &i,  0.25, 2.55, 0.10, 0.18, slices: 6, rings: 4, uBase: 20)
+    // 28-32: five branch crown rising from head
+    let crownAngles: [Float] = [0, 1.26, 2.51, 3.77, 5.03] // 5 around 360°
+    for ca in crownAngles {
+        let cx = cos(ca) * 0.10
+        let cz = sin(ca) * 0.10
+        let tx = cos(ca) * 0.45
+        let tz = sin(ca) * 0.45
+        mbCylinder(&v, &i, cx, 3.30, cz, tx, 3.95, tz,
+                   r0: 0.06, r1: 0.025, sides: 4, uBase: 10)
+        // 33-37: foliage cluster at the tip of each crown branch
+        mbSphere(&v, &i, tx, 3.95, tz, 0.22, slices: 6, rings: 4, uBase: 20)
+        // Smaller secondary leaf cluster
+        mbSphere(&v, &i, tx * 0.7, 3.85, tz * 0.7, 0.14, slices: 5, rings: 3, uBase: 21)
+    }
+    // 38-41: four hanging vines from arms (uBase=14 = bark shader gives mahogany dark vine)
+    mbCylinder(&v, &i, -0.65, 1.55, 0.20,  -0.55, 0.85, 0.25, r0: 0.025, r1: 0.012, sides: 3, uBase: 14)
+    mbCylinder(&v, &i, -0.78, 1.20, 0.25,  -0.78, 0.55, 0.30, r0: 0.022, r1: 0.010, sides: 3, uBase: 14)
+    mbCylinder(&v, &i,  0.65, 1.55, 0.20,   0.55, 0.85, 0.25, r0: 0.025, r1: 0.012, sides: 3, uBase: 14)
+    mbCylinder(&v, &i,  0.78, 1.20, 0.25,   0.78, 0.55, 0.30, r0: 0.022, r1: 0.010, sides: 3, uBase: 14)
+    // 42-44: spine knots on the back
+    mbSphere(&v, &i, 0, 2.40, 0.32, 0.07, slices: 4, rings: 3, uBase: 10)
+    mbSphere(&v, &i, 0, 1.85, 0.36, 0.07, slices: 4, rings: 3, uBase: 10)
+    mbSphere(&v, &i, 0, 1.30, 0.34, 0.06, slices: 4, rings: 3, uBase: 10)
+    // 45: beard moss hanging under chin
+    mbCylinder(&v, &i, 0, 2.90, -0.15,  0, 2.55, -0.18, r0: 0.06, r1: 0.03, sides: 4, uBase: 20)
+    return mbBuffers(v, i, device)
+}
+
+// ── Enemy 27: Skeleton Knight ────────────────────────────────────────────────
+// 20+ design features: skull + 2 eye sockets + jaw + 3 teeth + 3 vertebrae +
+// 3 ribs + pelvis + 2 pauldrons + 2 upper arms + 2 lower arms + 2 hands +
+// sword (shaft + crossguard + pommel) + shield (disc + boss) + 2 thigh bones +
+// 2 shin bones + 2 feet. Bone uBase=0 (treated as bone-cream in shader),
+// eye sockets uBase=8 (emissive red), metal weapons uBase=20 (steel branch).
+func makeSkeletonKnight(device: MTLDevice) -> (vtx: MTLBuffer, idx: MTLBuffer, count: Int) {
+    var v: [WorldVertex] = []
+    var i: [UInt16] = []
+    // 1: skull
+    mbSphere(&v, &i, 0, 1.78, 0, 0.16, slices: 8, rings: 6, uBase: 0)
+    // 2-3: eye sockets — small dark spheres recessed into the front
+    mbSphere(&v, &i, -0.06, 1.80, -0.13, 0.030, slices: 4, rings: 3, uBase: 8)
+    mbSphere(&v, &i,  0.06, 1.80, -0.13, 0.030, slices: 4, rings: 3, uBase: 8)
+    // 4: jaw (small cylinder)
+    mbCylinder(&v, &i, 0, 1.66, -0.05,  0, 1.62, -0.16, r0: 0.10, r1: 0.07, sides: 5, uBase: 0)
+    // 5-7: 3 teeth on the jaw
+    mbCylinder(&v, &i, -0.05, 1.66, -0.13, -0.05, 1.61, -0.13, r0: 0.013, r1: 0.0, sides: 3, uBase: 0)
+    mbCylinder(&v, &i,  0.00, 1.66, -0.14,  0.00, 1.60, -0.14, r0: 0.013, r1: 0.0, sides: 3, uBase: 0)
+    mbCylinder(&v, &i,  0.05, 1.66, -0.13,  0.05, 1.61, -0.13, r0: 0.013, r1: 0.0, sides: 3, uBase: 0)
+    // 8-10: spine vertebrae
+    mbSphere(&v, &i, 0, 1.55, 0, 0.075, slices: 5, rings: 3, uBase: 0)
+    mbSphere(&v, &i, 0, 1.40, 0, 0.075, slices: 5, rings: 3, uBase: 0)
+    mbSphere(&v, &i, 0, 1.25, 0, 0.080, slices: 5, rings: 3, uBase: 0)
+    // 11-13: ribcage — 3 horizontal arched cylinders
+    mbCylinder(&v, &i, -0.18, 1.42, 0,  0.18, 1.42, 0, r0: 0.025, r1: 0.025, sides: 3, uBase: 0)
+    mbCylinder(&v, &i, -0.20, 1.32, 0,  0.20, 1.32, 0, r0: 0.025, r1: 0.025, sides: 3, uBase: 0)
+    mbCylinder(&v, &i, -0.18, 1.22, 0,  0.18, 1.22, 0, r0: 0.025, r1: 0.025, sides: 3, uBase: 0)
+    // 14: pelvic plate
+    mbCylinder(&v, &i, 0, 1.10, 0,  0, 1.04, 0, r0: 0.16, r1: 0.13, sides: 6, uBase: 0)
+    // 15-16: shoulder pauldrons (steel uBase=20)
+    mbSphere(&v, &i, -0.18, 1.50, 0, 0.10, slices: 5, rings: 4, uBase: 20)
+    mbSphere(&v, &i,  0.18, 1.50, 0, 0.10, slices: 5, rings: 4, uBase: 20)
+    // 17-18: upper arms
+    mbCylinder(&v, &i, -0.20, 1.45, 0,  -0.30, 1.10, 0.03, r0: 0.045, r1: 0.040, sides: 4, uBase: 0)
+    mbCylinder(&v, &i,  0.20, 1.45, 0,   0.30, 1.10, 0.03, r0: 0.045, r1: 0.040, sides: 4, uBase: 0)
+    // 19-20: lower arms (left holds shield, right holds sword)
+    mbCylinder(&v, &i, -0.30, 1.10, 0.03,  -0.42, 0.78, 0.10, r0: 0.040, r1: 0.034, sides: 4, uBase: 0)
+    mbCylinder(&v, &i,  0.30, 1.10, 0.03,   0.40, 0.85, 0.20, r0: 0.040, r1: 0.034, sides: 4, uBase: 0)
+    // 21-22: hands (small spheres)
+    mbSphere(&v, &i, -0.42, 0.78, 0.10, 0.045, slices: 4, rings: 3, uBase: 0)
+    mbSphere(&v, &i,  0.40, 0.85, 0.20, 0.045, slices: 4, rings: 3, uBase: 0)
+    // 23: sword shaft (long thin cylinder, vertical, mounted in right hand)
+    mbCylinder(&v, &i, 0.40, 0.85, 0.20,  0.40, 1.85, 0.20, r0: 0.025, r1: 0.020, sides: 4, uBase: 20)
+    // 24: sword crossguard (short horizontal cylinder)
+    mbCylinder(&v, &i, 0.27, 0.95, 0.20,  0.53, 0.95, 0.20, r0: 0.020, r1: 0.020, sides: 4, uBase: 20)
+    // 25: sword pommel (small sphere at base of grip)
+    mbSphere(&v, &i, 0.40, 0.80, 0.20, 0.030, slices: 4, rings: 3, uBase: 20)
+    // 26: shield disc (vertical circular disc on left arm — flat low cylinder)
+    mbCylinder(&v, &i, -0.46, 0.92, 0.16,  -0.50, 0.92, 0.16, r0: 0.22, r1: 0.22, sides: 10, uBase: 20)
+    // 27: shield boss (central spherical bump on the shield)
+    mbSphere(&v, &i, -0.48, 0.92, 0.16, 0.050, slices: 5, rings: 3, uBase: 21)
+    // 28-29: thigh bones
+    mbCylinder(&v, &i, -0.08, 1.04, 0,  -0.10, 0.55, 0.02, r0: 0.055, r1: 0.045, sides: 4, uBase: 0)
+    mbCylinder(&v, &i,  0.08, 1.04, 0,   0.10, 0.55, 0.02, r0: 0.055, r1: 0.045, sides: 4, uBase: 0)
+    // 30-31: shin bones
+    mbCylinder(&v, &i, -0.10, 0.55, 0.02,  -0.10, 0.05, 0.05, r0: 0.045, r1: 0.038, sides: 4, uBase: 0)
+    mbCylinder(&v, &i,  0.10, 0.55, 0.02,   0.10, 0.05, 0.05, r0: 0.045, r1: 0.038, sides: 4, uBase: 0)
+    // 32-33: feet (low flat slabs)
+    mbCylinder(&v, &i, -0.10, 0, 0.05,  -0.10, 0.05, 0.05, r0: 0.080, r1: 0.080, sides: 5, uBase: 0)
+    mbCylinder(&v, &i,  0.10, 0, 0.05,   0.10, 0.05, 0.05, r0: 0.080, r1: 0.080, sides: 5, uBase: 0)
+    return mbBuffers(v, i, device)
+}

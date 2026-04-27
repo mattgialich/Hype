@@ -41,7 +41,10 @@ pub const EnemyAI = struct {
             const id: u16 = @intCast(i);
             if (!world.alive[id] or world.team[id] != 1) continue;
             switch (world.mesh_id[id]) {
-                3 => tick_gargoyle(self, world, id, player_id, pp, dt, t),
+                3  => tick_gargoyle(self, world, id, player_id, pp, dt, t),
+                25 => tick_wisp    (self, world, id, player_id, pp, dt, t),
+                26 => tick_ent     (self, world, id, player_id, pp, dt, t),
+                27 => tick_knight  (self, world, id, player_id, pp, dt, t),
                 else => {},
             }
         }
@@ -172,6 +175,281 @@ pub const EnemyAI = struct {
                 }
             },
 
+            else => {},
+        }
+    }
+
+    // ── Forest Wisp (mesh_id 25) ─────────────────────────────────────────────
+    // Floats high, very fast, low HP — harasser archetype. Closer aggro range,
+    // smaller melee distance, faster speed than gargoyle.
+    fn tick_wisp(self: *EnemyAI, world: *World, id: EntityId,
+                 player_id: EntityId, pp: Vec3, dt: f32, t: f32) void
+    {
+        const AGGRO_R    : f32 = 14.0;
+        const LEASH_R    : f32 = 32.0;
+        const MELEE_R    : f32 = 1.5;
+        const CHASE_SPD  : f32 = 8.5;
+        const PATROL_SPD : f32 = 2.2;
+
+        // Higher hover than gargoyle, with bigger bob amplitude
+        const phase = @as(f32, @floatFromInt(id)) * 1.7;
+        world.pos[id].y = 2.5 + std.math.sin(t * 3.2 + phase) * 0.30;
+        world.vel[id].y = 0;
+
+        const dx  = pp.x - world.pos[id].x;
+        const dz  = pp.z - world.pos[id].z;
+        const dsq = dx * dx + dz * dz;
+
+        const hdx = self.home[id].x - world.pos[id].x;
+        const hdz = self.home[id].z - world.pos[id].z;
+        const home_dsq = hdx * hdx + hdz * hdz;
+
+        switch (self.state[id]) {
+            PATROL => {
+                // Tighter, faster orbit unique per wisp
+                const idf       = @as(f32, @floatFromInt(id));
+                const orbit_r   = 1.4 + std.math.sin(idf * 4.1) * 0.7;
+                const orbit_spd = 0.85 + @as(f32, @floatFromInt(id % 5)) * 0.12;
+                const angle     = t * orbit_spd + idf * 1.71;
+                const tx  = self.home[id].x + std.math.cos(angle) * orbit_r;
+                const tz  = self.home[id].z + std.math.sin(angle) * orbit_r;
+                const wdx = tx - world.pos[id].x;
+                const wdz = tz - world.pos[id].z;
+                const wd  = std.math.sqrt(wdx * wdx + wdz * wdz);
+                if (wd > 0.2) {
+                    world.vel[id].x = (wdx / wd) * PATROL_SPD;
+                    world.vel[id].z = (wdz / wd) * PATROL_SPD;
+                    world.rot_y[id] = std.math.atan2(wdx / wd, wdz / wd);
+                }
+                if (dsq < AGGRO_R * AGGRO_R) {
+                    self.state[id] = ALERT;
+                    self.timer[id] = 0.20; // shorter wind-up than gargoyle
+                    world.vel[id]  = Vec3.zero;
+                }
+            },
+            ALERT => {
+                world.vel[id].x *= (1.0 - dt * 12.0);
+                world.vel[id].z *= (1.0 - dt * 12.0);
+                if (dsq > 0.01) {
+                    const d2 = std.math.sqrt(dsq);
+                    world.rot_y[id] = std.math.atan2(dx / d2, dz / d2);
+                }
+                self.timer[id] -= dt;
+                if (self.timer[id] <= 0) self.state[id] = CHASE;
+            },
+            CHASE => {
+                if (home_dsq > LEASH_R * LEASH_R) {
+                    self.state[id] = REGROUP;
+                    world.vel[id]  = Vec3.zero;
+                } else if (dsq < MELEE_R * MELEE_R) {
+                    if (enemy_config.get_by_mesh(world.mesh_id[id])) |cfg| {
+                        world.hp[player_id] -= cfg.damage;
+                    }
+                    world.vel[id]  = Vec3.zero;
+                    self.state[id] = ALERT;
+                    self.timer[id] = 0.30;
+                } else if (dsq > 0.1) {
+                    const d2 = std.math.sqrt(dsq);
+                    world.vel[id].x = (dx / d2) * CHASE_SPD;
+                    world.vel[id].z = (dz / d2) * CHASE_SPD;
+                    world.rot_y[id] = std.math.atan2(dx / d2, dz / d2);
+                }
+            },
+            REGROUP => {
+                if (home_dsq > 2.0) {
+                    const hd = std.math.sqrt(home_dsq);
+                    world.vel[id].x = (hdx / hd) * PATROL_SPD * 2.0;
+                    world.vel[id].z = (hdz / hd) * PATROL_SPD * 2.0;
+                    world.rot_y[id] = std.math.atan2(hdx / hd, hdz / hd);
+                } else {
+                    world.vel[id]  = Vec3.zero;
+                    self.state[id] = PATROL;
+                    self.timer[id] = 0;
+                }
+                if (dsq < AGGRO_R * AGGRO_R) self.state[id] = CHASE;
+            },
+            else => {},
+        }
+    }
+
+    // ── Tree Ent (mesh_id 26) ────────────────────────────────────────────────
+    // Slow heavy tank. Stays grounded, large aggro and melee range, big damage.
+    // Doesn't bother orbiting in patrol — drifts slowly around home.
+    fn tick_ent(self: *EnemyAI, world: *World, id: EntityId,
+                player_id: EntityId, pp: Vec3, dt: f32, t: f32) void
+    {
+        const AGGRO_R    : f32 = 22.0;
+        const LEASH_R    : f32 = 50.0;
+        const MELEE_R    : f32 = 3.2;
+        const CHASE_SPD  : f32 = 2.6;
+        const PATROL_SPD : f32 = 0.5;
+
+        // Grounded
+        world.pos[id].y = 0;
+        world.vel[id].y = 0;
+
+        const dx  = pp.x - world.pos[id].x;
+        const dz  = pp.z - world.pos[id].z;
+        const dsq = dx * dx + dz * dz;
+
+        const hdx = self.home[id].x - world.pos[id].x;
+        const hdz = self.home[id].z - world.pos[id].z;
+        const home_dsq = hdx * hdx + hdz * hdz;
+
+        switch (self.state[id]) {
+            PATROL => {
+                // Slow drift in lazy figure-8 around home
+                const idf   = @as(f32, @floatFromInt(id));
+                const angle = t * 0.18 + idf * 0.7;
+                const tx = self.home[id].x + std.math.cos(angle) * 2.5;
+                const tz = self.home[id].z + std.math.sin(angle * 2.0) * 1.8;
+                const wdx = tx - world.pos[id].x;
+                const wdz = tz - world.pos[id].z;
+                const wd  = std.math.sqrt(wdx * wdx + wdz * wdz);
+                if (wd > 0.4) {
+                    world.vel[id].x = (wdx / wd) * PATROL_SPD;
+                    world.vel[id].z = (wdz / wd) * PATROL_SPD;
+                    world.rot_y[id] = std.math.atan2(wdx / wd, wdz / wd);
+                }
+                if (dsq < AGGRO_R * AGGRO_R) {
+                    self.state[id] = ALERT;
+                    self.timer[id] = 0.85;   // long wind-up — slow tank
+                    world.vel[id]  = Vec3.zero;
+                }
+            },
+            ALERT => {
+                world.vel[id].x *= (1.0 - dt * 8.0);
+                world.vel[id].z *= (1.0 - dt * 8.0);
+                if (dsq > 0.01) {
+                    const d2 = std.math.sqrt(dsq);
+                    world.rot_y[id] = std.math.atan2(dx / d2, dz / d2);
+                }
+                self.timer[id] -= dt;
+                if (self.timer[id] <= 0) self.state[id] = CHASE;
+            },
+            CHASE => {
+                if (home_dsq > LEASH_R * LEASH_R) {
+                    self.state[id] = REGROUP;
+                    world.vel[id]  = Vec3.zero;
+                } else if (dsq < MELEE_R * MELEE_R) {
+                    if (enemy_config.get_by_mesh(world.mesh_id[id])) |cfg| {
+                        world.hp[player_id] -= cfg.damage;
+                    }
+                    world.vel[id]  = Vec3.zero;
+                    self.state[id] = ALERT;
+                    self.timer[id] = 1.10;   // slow recovery
+                } else if (dsq > 0.1) {
+                    const d2 = std.math.sqrt(dsq);
+                    world.vel[id].x = (dx / d2) * CHASE_SPD;
+                    world.vel[id].z = (dz / d2) * CHASE_SPD;
+                    world.rot_y[id] = std.math.atan2(dx / d2, dz / d2);
+                }
+            },
+            REGROUP => {
+                if (home_dsq > 2.0) {
+                    const hd = std.math.sqrt(home_dsq);
+                    world.vel[id].x = (hdx / hd) * PATROL_SPD * 1.5;
+                    world.vel[id].z = (hdz / hd) * PATROL_SPD * 1.5;
+                    world.rot_y[id] = std.math.atan2(hdx / hd, hdz / hd);
+                } else {
+                    world.vel[id]  = Vec3.zero;
+                    self.state[id] = PATROL;
+                    self.timer[id] = 0;
+                }
+                if (dsq < AGGRO_R * AGGRO_R) self.state[id] = CHASE;
+            },
+            else => {},
+        }
+    }
+
+    // ── Skeleton Knight (mesh_id 27) ─────────────────────────────────────────
+    // Medium speed, medium HP, balanced melee. Patrols a steady straight-line
+    // back-and-forth march (rather than orbiting) — disciplined feel.
+    fn tick_knight(self: *EnemyAI, world: *World, id: EntityId,
+                   player_id: EntityId, pp: Vec3, dt: f32, t: f32) void
+    {
+        const AGGRO_R    : f32 = 17.0;
+        const LEASH_R    : f32 = 42.0;
+        const MELEE_R    : f32 = 2.2;
+        const CHASE_SPD  : f32 = 4.2;
+        const PATROL_SPD : f32 = 1.4;
+
+        world.pos[id].y = 0;
+        world.vel[id].y = 0;
+
+        const dx  = pp.x - world.pos[id].x;
+        const dz  = pp.z - world.pos[id].z;
+        const dsq = dx * dx + dz * dz;
+
+        const hdx = self.home[id].x - world.pos[id].x;
+        const hdz = self.home[id].z - world.pos[id].z;
+        const home_dsq = hdx * hdx + hdz * hdz;
+
+        switch (self.state[id]) {
+            PATROL => {
+                // March: each knight has a fixed direction; reverses when too far from home
+                const idf      = @as(f32, @floatFromInt(id));
+                const heading  = idf * 1.234 + std.math.sin(t * 0.15 + idf) * 0.4;
+                const dirx     = std.math.cos(heading);
+                const dirz     = std.math.sin(heading);
+                if (home_dsq > 25.0) {
+                    // Turn back home
+                    const hd = std.math.sqrt(home_dsq);
+                    world.vel[id].x = (hdx / hd) * PATROL_SPD;
+                    world.vel[id].z = (hdz / hd) * PATROL_SPD;
+                    world.rot_y[id] = std.math.atan2(hdx / hd, hdz / hd);
+                } else {
+                    world.vel[id].x = dirx * PATROL_SPD;
+                    world.vel[id].z = dirz * PATROL_SPD;
+                    world.rot_y[id] = std.math.atan2(dirx, dirz);
+                }
+                if (dsq < AGGRO_R * AGGRO_R) {
+                    self.state[id] = ALERT;
+                    self.timer[id] = 0.55;   // mid-length wind-up
+                    world.vel[id]  = Vec3.zero;
+                }
+            },
+            ALERT => {
+                world.vel[id].x *= (1.0 - dt * 10.0);
+                world.vel[id].z *= (1.0 - dt * 10.0);
+                if (dsq > 0.01) {
+                    const d2 = std.math.sqrt(dsq);
+                    world.rot_y[id] = std.math.atan2(dx / d2, dz / d2);
+                }
+                self.timer[id] -= dt;
+                if (self.timer[id] <= 0) self.state[id] = CHASE;
+            },
+            CHASE => {
+                if (home_dsq > LEASH_R * LEASH_R) {
+                    self.state[id] = REGROUP;
+                    world.vel[id]  = Vec3.zero;
+                } else if (dsq < MELEE_R * MELEE_R) {
+                    if (enemy_config.get_by_mesh(world.mesh_id[id])) |cfg| {
+                        world.hp[player_id] -= cfg.damage;
+                    }
+                    world.vel[id]  = Vec3.zero;
+                    self.state[id] = ALERT;
+                    self.timer[id] = 0.55;
+                } else if (dsq > 0.1) {
+                    const d2 = std.math.sqrt(dsq);
+                    world.vel[id].x = (dx / d2) * CHASE_SPD;
+                    world.vel[id].z = (dz / d2) * CHASE_SPD;
+                    world.rot_y[id] = std.math.atan2(dx / d2, dz / d2);
+                }
+            },
+            REGROUP => {
+                if (home_dsq > 2.0) {
+                    const hd = std.math.sqrt(home_dsq);
+                    world.vel[id].x = (hdx / hd) * PATROL_SPD * 2.0;
+                    world.vel[id].z = (hdz / hd) * PATROL_SPD * 2.0;
+                    world.rot_y[id] = std.math.atan2(hdx / hd, hdz / hd);
+                } else {
+                    world.vel[id]  = Vec3.zero;
+                    self.state[id] = PATROL;
+                    self.timer[id] = 0;
+                }
+                if (dsq < AGGRO_R * AGGRO_R) self.state[id] = CHASE;
+            },
             else => {},
         }
     }

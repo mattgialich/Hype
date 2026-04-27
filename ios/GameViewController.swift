@@ -9,7 +9,7 @@ import simd
 
 // ── Enemy name table — keep in sync with name_idx in enemy_config.zig ────────
 // Index 0 = Gargoyle.  Append here when adding new enemy types.
-private let kEnemyNames: [String] = ["Gargoyle"]
+private let kEnemyNames: [String] = ["Gargoyle", "Forest Wisp", "Tree Ent", "Skeleton Knight"]
 
 // ── Floating enemy name labels overlay ───────────────────────────────────────
 private class EnemyLabelOverlay: UIView {
@@ -291,6 +291,15 @@ class GameViewController: UIViewController, MTKViewDelegate {
     var shrineVBuf:        MTLBuffer!
     var shrineIBuf:        MTLBuffer!
     var shrineIndexCount:  Int = 0
+    var wispVBuf:          MTLBuffer!
+    var wispIBuf:          MTLBuffer!
+    var wispIndexCount:    Int = 0
+    var entVBuf:           MTLBuffer!
+    var entIBuf:           MTLBuffer!
+    var entIndexCount:     Int = 0
+    var knightVBuf:        MTLBuffer!
+    var knightIBuf:        MTLBuffer!
+    var knightIndexCount:  Int = 0
 
     // Skill button
     var skillButton: UIButton!
@@ -556,6 +565,9 @@ class GameViewController: UIViewController, MTKViewDelegate {
                             case 22: return (bannerVBuf,      bannerIBuf,      bannerIndexCount)
                             case 23: return (berryBushVBuf,   berryBushIBuf,   berryBushIndexCount)
                             case 24: return (shrineVBuf,      shrineIBuf,      shrineIndexCount)
+                            case 25: return (wispVBuf,        wispIBuf,        wispIndexCount)
+                            case 26: return (entVBuf,         entIBuf,         entIndexCount)
+                            case 27: return (knightVBuf,      knightIBuf,      knightIndexCount)
                             default: return (capsuleVBuf,     capsuleIBuf,     capsuleIndexCount)
                             }
                         }()
@@ -869,6 +881,14 @@ class GameViewController: UIViewController, MTKViewDelegate {
         berryBushVBuf = bbv;    berryBushIBuf = bbi;    berryBushIndexCount = bbc
         let (shv, shi, shc) = makeShrine(device: device)
         shrineVBuf = shv;       shrineIBuf = shi;       shrineIndexCount = shc
+
+        // ── 3 new enemy meshes ───────────────────────────────────────────
+        let (wpv, wpi, wpc) = makeForestWisp(device: device)
+        wispVBuf = wpv;         wispIBuf = wpi;         wispIndexCount = wpc
+        let (env_, eni, enc_) = makeTreeEnt(device: device)
+        entVBuf = env_;         entIBuf = eni;          entIndexCount = enc_
+        let (knv, kni, knc) = makeSkeletonKnight(device: device)
+        knightVBuf = knv;       knightIBuf = kni;       knightIndexCount = knc
 
         // 88-byte DrawCall for the ground: identity model + earthy dark color
         // Layout: float4x4 model (64B) | float4 color (16B) | uint fx_flags (4B) | ushort mesh_id (2B) | uchar2 pad (2B)

@@ -351,6 +351,64 @@ export fn game_init() void {
         world.vel[ge]     = Vec3.zero;
         enemy_ai.register(ge, world.pos[ge]);
     }
+
+    // Forest Wisps: scattered, faster harassers — spawn at varied positions
+    const wisp_positions = [_][2]f32{
+        .{  14.0,  -8.0 }, .{ -12.0, -32.0 }, .{  40.0, -20.0 }, .{ -38.0, -45.0 },
+        .{  20.0, -60.0 }, .{ -25.0, -78.0 }, .{  35.0, -95.0 }, .{ -42.0, -110.0 },
+        .{  50.0, -130.0 }, .{ -30.0, -150.0 }, .{  60.0,  20.0 }, .{ -55.0,   8.0 },
+        .{  -10.0, 50.0 }, .{  45.0,  60.0 },
+    };
+    const wisp_cfg = enemy_config.get_by_mesh(25).?;
+    for (wisp_positions) |wp| {
+        const e = world.spawn();
+        world.pos[e]     = Vec3{ .x = wp[0], .y = 2.5, .z = wp[1] };
+        world.mesh_id[e] = 25;
+        world.scale[e]   = rng_range(1.4, 2.0);
+        world.team[e]    = 1;
+        world.hp[e]      = wisp_cfg.hp_max;
+        world.hp_max[e]  = wisp_cfg.hp_max;
+        world.radius[e]  = 0.30;
+        world.vel[e]     = Vec3.zero;
+        enemy_ai.register(e, world.pos[e]);
+    }
+
+    // Tree Ents: rare slow tanks — placed near forest clusters away from path
+    const ent_positions = [_][2]f32{
+        .{  60.0, -55.0 }, .{ -65.0, -75.0 }, .{  55.0, -130.0 }, .{ -50.0, -170.0 },
+    };
+    const ent_cfg = enemy_config.get_by_mesh(26).?;
+    for (ent_positions) |ep| {
+        const e = world.spawn();
+        world.pos[e]     = Vec3{ .x = ep[0], .y = 0, .z = ep[1] };
+        world.mesh_id[e] = 26;
+        world.scale[e]   = rng_range(2.4, 3.0);
+        world.team[e]    = 1;
+        world.hp[e]      = ent_cfg.hp_max;
+        world.hp_max[e]  = ent_cfg.hp_max;
+        world.radius[e]  = 0.80;
+        world.vel[e]     = Vec3.zero;
+        enemy_ai.register(e, world.pos[e]);
+    }
+
+    // Skeleton Knights: balanced melee units — patrol along the path zone
+    const knight_positions = [_][2]f32{
+        .{  18.0, -40.0 }, .{ -20.0, -65.0 }, .{  25.0, -90.0 }, .{ -28.0, -115.0 },
+        .{  30.0, -140.0 }, .{ -22.0, -160.0 }, .{  15.0, -185.0 }, .{ -18.0, -200.0 },
+    };
+    const knight_cfg = enemy_config.get_by_mesh(27).?;
+    for (knight_positions) |kp| {
+        const e = world.spawn();
+        world.pos[e]     = Vec3{ .x = kp[0], .y = 0, .z = kp[1] };
+        world.mesh_id[e] = 27;
+        world.scale[e]   = rng_range(1.7, 2.0);
+        world.team[e]    = 1;
+        world.hp[e]      = knight_cfg.hp_max;
+        world.hp_max[e]  = knight_cfg.hp_max;
+        world.radius[e]  = 0.40;
+        world.vel[e]     = Vec3.zero;
+        enemy_ai.register(e, world.pos[e]);
+    }
 }
 
 export fn game_update(dt: f32) void {
