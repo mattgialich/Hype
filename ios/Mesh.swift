@@ -914,6 +914,13 @@ func makePortal(device: MTLDevice) -> (vtx: MTLBuffer, idx: MTLBuffer, count: In
         addCylinder(p0.0, p0.1, 0,  p1.0, p1.1, 0,  r0: 0.20, r1: 0.20, sides: 5, uBase: 0)
     }
 
+    // ── Vertical light beacon: tall emissive cylinder rising from the arch peak.
+    //    uBase=70 → beacon shader branch. Visible from anywhere on the map.
+    let beaconBaseY: Float = pillarH + 0.55          // top of arch
+    let beaconTopY:  Float = beaconBaseY + 14.0       // 14m beam (×scale at runtime)
+    addCylinder(0, beaconBaseY, 0,  0, beaconTopY, 0,
+                r0: 0.14, r1: 0.04, sides: 6, uBase: 70)
+
     // ── Inner emissive swirl disc (vertical quad in XY plane at z=0) ──
     // Marked with uBase=60 so the shader picks the portal-swirl branch.
     // Disc spans from y=0.4 to y=3.4, x=±1.05.

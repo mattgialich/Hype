@@ -146,12 +146,13 @@ export fn game_init() void {
     }
 
     // Zone-transition portal — single entity at the back of the map.
-    // Player walks toward this to "exit" the zone.
+    // Player walks toward this to "exit" the zone. Tall light beacon makes it
+    // visible from anywhere; ground-shader path leads here from the start.
     {
         const e = world.spawn();
         world.pos[e]     = Vec3{ .x = 0, .y = 0, .z = -100 };
         world.mesh_id[e] = 13;
-        world.scale[e]   = 1.6;
+        world.scale[e]   = 2.5;
         world.team[e]    = 13;
         world.hp[e]      = 9999;
         world.radius[e]  = 1.5;

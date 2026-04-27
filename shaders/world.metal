@@ -189,6 +189,21 @@ fragment float4 frag_world_forward(
         float sparkleMask = smoothstep(0.992, 0.998, sparkleHash);
         float3 sparkle    = float3(0.6, 0.7, 0.9) * sparkleMask;
 
+        // Trodden dirt PATH from start (0,0) to the zone portal at (0,-100).
+        // The path is a corridor along the -Z axis; centerline x=0, length 100m.
+        // Edges wobble via noise for a natural foot-worn look.
+        float along       = -wxz.y;                      // 0 at start, 100 at portal
+        float across      = abs(wxz.x);
+        float edgeWobble  = (valueNoise3(float3(wxz.x * 2.0, 8.0, wxz.y * 2.0)) - 0.5) * 0.7;
+        float pathRadius  = 2.4 + edgeWobble;
+        float inSegment   = saturate((along + 1.0) * 0.5) * (1.0 - saturate((along - 100.0) * 0.5));
+        float pathBlend   = (1.0 - smoothstep(pathRadius, pathRadius + 0.7, across)) * inSegment;
+        // Centerline darker wear (ruts where feet have walked most)
+        float wear        = 1.0 - smoothstep(0.0, 0.8, across);
+        float3 pathDirt   = float3(0.32, 0.20, 0.08) * (1.0 - wear * 0.25);
+        pathDirt         *= 0.85 + 0.30 * grass;
+        col = mix(col, pathDirt, pathBlend);
+
         // Forest lighting (matches what other meshes use at the bottom of the function)
         float3 L = normalize(float3(0.4, 1.0, 0.25));
         float3 N = normalize(in.normal);
@@ -402,8 +417,16 @@ fragment float4 frag_world_forward(
         }
     }
 
-    // Zone-transition portal: enchanted stone arch + animated swirl disc
+    // Zone-transition portal: enchanted stone arch + animated swirl disc + light beacon
     if (mesh_frag == 13u) {
+        if (in.uv.x >= 70.0) {
+            // BEACON — tall thin emissive light pillar, visible from anywhere on the map.
+            // Vertical falloff: brightest at the base (where the swirl is), dimmer up high.
+            float t = saturate((in.object_pos.y - 4.0) / 14.0);     // 0 at beacon base, 1 at top
+            float fade = 1.0 - t * 0.6;                              // never fully fades — still visible against sky
+            float pulse = 0.85 + 0.15 * sin(frame.time * 1.4);
+            return float4(float3(0.6, 1.4, 2.4) * fade * pulse * 1.6, 1.0);
+        }
         if (in.uv.x >= 60.0) {
             // SWIRL — animated emissive spiral, early return.
             // Object_pos.xy gives stable mesh-frame coords for polar math.
