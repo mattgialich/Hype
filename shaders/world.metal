@@ -511,43 +511,115 @@ fragment float4 frag_world_forward(
             return float4(float3(0.6, 1.4, 2.4) * fade * pulse * 1.6, 1.0);
         }
         if (in.uv.x >= 60.0) {
-            // SWIRL — multi-layer animated portal, early return.
-            // Object_pos.xy: disc center is (0, 1.9), radius up to 1.4 inside the arch.
-            float2 c = in.object_pos.xy - float2(0.0, 1.9);
+            // Multi-layer animated portal swirl. Opaque (no discard) — outside
+            // the active swirl radius the disc renders as deep void so geometry
+            // behind the gate is fully occluded.
+            // ~20 design passes condensed:
+            //  1 polar coord setup
+            //  2 OPAQUE dark frame outside r=1.45
+            //  3 fast 3-arm spiral
+            //  4 counter-rotating 2-arm slow gate
+            //  5 stationary 8-pointed star burst
+            //  6 outward expanding ring pulse #1
+            //  7 second offset-phase ring pulse #2
+            //  8 inner glowing core hotspot
+            //  9 center dark void eye
+            // 10 hash-driven sparkle dots
+            // 11 distortion-offset warble (uv warping)
+            // 12 secondary fine spiral overlay
+            // 13 slow color cycle (blue ↔ magenta ↔ cyan)
+            // 14 hue shift per angular position
+            // 15 vertical "tear" subtle gradient
+            // 16 outward radial spokes
+            // 17 strong base glow fill
+            // 18 brightness pulse global
+            // 19 anti-aliased rim fade
+            // 20 final HDR composition for bloom feed
+            float2 c = in.object_pos.xy - float2(0.0, 1.85);
             float r = length(c);
             float a = atan2(c.y, c.x);
-            if (r > 1.4) discard_fragment();
 
-            // Layer 1: three-arm fast spiral (the "energy" layer)
-            float spiral1 = sin(a * 3.0 + frame.time * 2.5 - r * 5.0);
+            // 2 — OUTER FRAME: opaque deep void with subtle radial gradient
+            if (r > 1.45) {
+                float frameG = smoothstep(2.4, 1.45, r);
+                float3 frame = float3(0.05, 0.03, 0.12) * frameG + float3(0.02, 0.01, 0.06);
+                // Very faint inner-edge glow leaking past the swirl into the frame
+                frame += float3(0.10, 0.18, 0.45) * smoothstep(1.45, 1.45 + 0.04, r) * 0.2;
+                return float4(frame, 1.0);
+            }
+
+            // 11 — distortion: offset polar coords slightly so spirals shimmer
+            float warp = sin(r * 8.0 + frame.time * 1.3) * 0.04;
+            float aw   = a + warp;
+
+            // 3 — fast 3-arm spiral
+            float spiral1 = sin(aw * 3.0 + frame.time * 2.5 - r * 5.5);
             float energy  = 0.5 + 0.5 * spiral1;
-
-            // Layer 2: counter-rotating slow ring (the "gate" layer)
-            float spiral2 = sin(a * 2.0 - frame.time * 1.2 + r * 3.0);
+            // 4 — counter-rotating 2-arm slow gate
+            float spiral2 = sin(aw * 2.0 - frame.time * 1.2 + r * 4.0);
             float gate    = 0.5 + 0.5 * spiral2;
+            // 12 — fine secondary spiral overlay
+            float spiral3 = sin(aw * 7.0 + frame.time * 3.5 - r * 9.0);
+            float fine    = 0.5 + 0.5 * spiral3;
+            // 5 — 8-pointed star burst (stationary)
+            float star    = pow(abs(cos(a * 4.0)), 6.0);
+            // 16 — radial spokes (subtle)
+            float spokes  = pow(abs(sin(a * 6.0)), 12.0) * 0.6;
+            // 6 — outward expanding ring #1
+            float pR1   = fract(frame.time * 0.40);
+            float ring1 = exp(-pow((r / 1.35 - pR1) * 7.0, 2.0)) * 0.7;
+            // 7 — outward expanding ring #2 (offset phase)
+            float pR2   = fract(frame.time * 0.30 + 0.5);
+            float ring2 = exp(-pow((r / 1.35 - pR2) * 8.0, 2.0)) * 0.5;
+            // 8 — inner core hotspot
+            float core  = exp(-pow(r * 3.5, 2.0));
+            // 9 — center dark void eye (small)
+            float voidE = exp(-pow(r * 14.0, 2.0));
+            // 10 — sparkle dots (hashed, drift slowly)
+            float2 sparkleCell = floor(in.object_pos.xy * 8.0 + frame.time * 0.4);
+            float sparkH = hash21(sparkleCell);
+            float sparkM = smoothstep(0.965, 0.99, sparkH);
+            // 18 — global brightness pulse
+            float gPulse = 0.85 + 0.15 * sin(frame.time * 0.9);
 
-            // Combine: energy modulates intensity, gate shifts hue
-            float intensity = mix(energy, energy * gate, 0.5) * 1.2;
-
-            // Color cycle, slower than before, deeper/richer
-            float3 colA = float3(0.30, 0.70, 1.50);     // deep sky-blue
-            float3 colB = float3(1.10, 0.30, 1.50);     // electric magenta
-            float3 colC = float3(0.45, 0.95, 1.10);     // cyan highlight
-            float hueT  = 0.5 + 0.5 * sin(frame.time * 0.6 + a * 0.5);
+            // 13/14 — color cycle (slow) + per-angle hue shift
+            float hueT = 0.5 + 0.5 * sin(frame.time * 0.55 + a * 0.5);
+            float3 colA = float3(0.30, 0.70, 1.50);   // deep sky-blue
+            float3 colB = float3(1.10, 0.30, 1.50);   // electric magenta
+            float3 colC = float3(0.45, 0.95, 1.10);   // cyan highlight
             float3 portal = mix(mix(colA, colB, hueT), colC, gate * 0.4);
 
-            // Outward energy pulse — bright ring expanding from center
-            float pulseR = fract(frame.time * 0.4);
-            float pulseRing = exp(-pow((r / 1.3 - pulseR) * 6.0, 2.0)) * 0.7;
+            // 15 — vertical tear: brighten slightly along the central vertical line
+            float tear = exp(-pow(c.x * 5.0, 2.0)) * 0.20;
 
-            // Soft circular fade at the rim
-            float fade = 1.0 - smoothstep(1.00, 1.40, r);
-            // Strong base glow so even the dimmest cells stay luminous
-            float3 baseGlow = float3(0.18, 0.40, 0.85) * fade;
+            // 19 — anti-aliased rim fade
+            float fade = 1.0 - smoothstep(1.05, 1.45, r);
 
+            // Combine intensity (3+4+12 layers + core + spokes), with void carving the center
+            float intensity = mix(energy, energy * gate, 0.5) * 1.10;
+            intensity = mix(intensity, intensity * (0.6 + 0.4 * fine), 0.45);
+            intensity += core * 0.45 + spokes * 0.25;
+            intensity *= (1.0 - voidE * 0.55);
+            intensity *= gPulse;
+
+            // 17 — strong base glow that keeps even the dim cells luminous
+            float3 baseGlow = float3(0.20, 0.45, 0.95) * fade;
+            // Star burst contribution (warmer)
+            float3 starCol  = float3(1.30, 1.10, 1.55) * star * 0.45 * fade;
+            // Sparkle highlights (white-violet)
+            float3 spark    = float3(1.50, 1.55, 1.75) * sparkM * fade;
+            // Tear highlight (warm-cyan vertical line)
+            float3 tearCol  = float3(0.90, 1.40, 1.60) * tear * fade;
+
+            // 20 — final HDR composition (deliberately overbright so bloom catches it)
             float3 final = portal * intensity * 2.8 * fade
                          + baseGlow
-                         + float3(1.4, 1.6, 2.0) * pulseRing * fade;
+                         + starCol
+                         + spark
+                         + tearCol
+                         + float3(1.40, 1.60, 2.00) * ring1 * fade
+                         + float3(0.85, 1.45, 1.90) * ring2 * fade
+                         + float3(0.18, 0.06, 0.40) * voidE * 1.4;
             return float4(final, 1.0);
         }
         // Stone columns of the arch — cooler enchanted-stone tint

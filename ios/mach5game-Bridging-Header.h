@@ -38,3 +38,7 @@ uint32_t game_get_player_level(void);
 // Layout per entry: float world_x, float world_y, float world_z,
 //                   uint8 level, uint8 name_idx, uint8 pad[2]
 void game_get_enemy_labels(uint8_t* buf, uint32_t* out_count);
+
+// Returns 1 if the player is within ~4.5 m of the zone portal — Swift polls this
+// each frame to decide when to surface the destination-map UI.
+uint32_t game_player_at_portal(void);

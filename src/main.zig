@@ -612,6 +612,17 @@ export fn game_get_enemy_labels(buf: [*]u8, out_count: *u32) void {
     out_count.* = count;
 }
 
+// Returns 1 if the player is within `r` meters of the zone-portal at (0, 0, -PATH_LEN).
+// Swift polls this each frame to decide when to surface the destination map UI.
+export fn game_player_at_portal() u32 {
+    const pp = world.pos[player.entity];
+    const dx = pp.x;
+    const dz = pp.z + PATH_LEN;
+    const dsq = dx * dx + dz * dz;
+    const R: f32 = 4.5;
+    return if (dsq < R * R) 1 else 0;
+}
+
 // Returns pointer and count for emitter buffer upload
 export fn game_get_emitters(out_count: *u32) [*]const u8 {
     out_count.* = @intCast(psys.emitter_count);

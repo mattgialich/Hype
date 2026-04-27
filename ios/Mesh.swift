@@ -1034,10 +1034,12 @@ func makePortal(device: MTLDevice) -> (vtx: MTLBuffer, idx: MTLBuffer, count: In
 
     // ── Inner emissive swirl disc (vertical quad in XY plane at z=0) ──
     // Marked with uBase=60 so the shader picks the portal-swirl branch.
-    // Disc spans from y=0.4 to y=3.4, x=±1.05.
-    let dHalfW: Float = 1.05
-    let dyMin: Float = 0.4
-    let dyMax: Float = 3.4
+    // Disc fills the arch interior — wider and taller than before; the
+    // shader renders an opaque dark void outside the swirl's circular crop
+    // so the gate fully occludes geometry behind it. Center y=1.85.
+    let dHalfW: Float = 1.10
+    let dyMin: Float = 0.05
+    let dyMax: Float = 3.65
     let dBase = UInt16(verts.count)
     verts.append(WorldVertex(px: -dHalfW, py: dyMin, pz: 0, nx: 0, ny: 0, nz: 1, u: 60, v: 0))
     verts.append(WorldVertex(px:  dHalfW, py: dyMin, pz: 0, nx: 0, ny: 0, nz: 1, u: 60, v: 0))

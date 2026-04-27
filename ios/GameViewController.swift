@@ -197,6 +197,197 @@ let kDrawCallStride = 88    // sizeof(DrawCall) in Zig
 let kEmitterStride  = 104   // sizeof(GpuEmitter) in Zig
 let kUniformStride  = 160   // sizeof(FrameUniforms) in Zig
 
+// ── Zone-portal destination map (shown when the player walks into the gate) ──
+//    Shows three realm tiles. Forest = current playable zone. Desert / Island
+//    are placeholders that surface a "Coming Soon" notice on tap.
+private final class PortalMapView: UIView {
+    var onForest:  (() -> Void)?
+    var onComingSoon: ((String) -> Void)?
+
+    private let panel    = UIView()
+    private let titleLbl = UILabel()
+    private let forestTile  : ZoneTile
+    private let desertTile  : ZoneTile
+    private let islandTile  : ZoneTile
+    private let closeBtn = UIButton(type: .system)
+
+    private final class ZoneTile: UIControl {
+        let nameLbl   = UILabel()
+        let statusLbl = UILabel()
+        let iconLbl   = UILabel()      // simple SF symbol/emoji silhouette
+        private let bgGradient = CAGradientLayer()
+        private let frameGlow  = CAGradientLayer()
+
+        init(name: String, status: String, icon: String,
+             colorTop: UIColor, colorBottom: UIColor, available: Bool) {
+            super.init(frame: .zero)
+            layer.cornerRadius = 18
+            layer.masksToBounds = true
+            layer.borderWidth = available ? 2.5 : 1.0
+            layer.borderColor = available
+                ? UIColor(red: 1.0, green: 0.82, blue: 0.30, alpha: 1).cgColor
+                : UIColor(white: 1, alpha: 0.18).cgColor
+
+            bgGradient.colors = [colorTop.cgColor, colorBottom.cgColor]
+            bgGradient.startPoint = CGPoint(x: 0.5, y: 0)
+            bgGradient.endPoint   = CGPoint(x: 0.5, y: 1)
+            layer.addSublayer(bgGradient)
+
+            // Subtle inner glow gradient at top — gives the tile a horizon feel
+            frameGlow.colors = [
+                UIColor(white: 1, alpha: 0.18).cgColor,
+                UIColor(white: 1, alpha: 0.0).cgColor,
+            ]
+            frameGlow.startPoint = CGPoint(x: 0.5, y: 0)
+            frameGlow.endPoint   = CGPoint(x: 0.5, y: 0.7)
+            layer.addSublayer(frameGlow)
+
+            iconLbl.text = icon
+            iconLbl.font = .systemFont(ofSize: 64, weight: .regular)
+            iconLbl.textAlignment = .center
+            iconLbl.textColor = .white
+            iconLbl.layer.shadowColor   = UIColor.black.cgColor
+            iconLbl.layer.shadowOpacity = 0.7
+            iconLbl.layer.shadowRadius  = 6
+            iconLbl.layer.shadowOffset  = .zero
+            addSubview(iconLbl)
+
+            nameLbl.text = name
+            nameLbl.font = .systemFont(ofSize: 22, weight: .bold)
+            nameLbl.textColor = .white
+            nameLbl.textAlignment = .center
+            nameLbl.layer.shadowColor   = UIColor.black.cgColor
+            nameLbl.layer.shadowOpacity = 0.8
+            nameLbl.layer.shadowRadius  = 4
+            nameLbl.layer.shadowOffset  = .zero
+            addSubview(nameLbl)
+
+            statusLbl.text = status
+            statusLbl.font = .systemFont(ofSize: 14, weight: .semibold)
+            statusLbl.textColor = available
+                ? UIColor(red: 1.0, green: 0.85, blue: 0.40, alpha: 1)
+                : UIColor(white: 0.85, alpha: 1)
+            statusLbl.textAlignment = .center
+            addSubview(statusLbl)
+
+            // Tap feedback
+            addTarget(self, action: #selector(touchDown), for: .touchDown)
+            addTarget(self, action: #selector(touchUp),   for: [.touchUpInside, .touchUpOutside, .touchCancel])
+        }
+        required init?(coder: NSCoder) { fatalError() }
+
+        @objc private func touchDown() {
+            UIView.animate(withDuration: 0.08) { self.transform = CGAffineTransform(scaleX: 0.97, y: 0.97) }
+        }
+        @objc private func touchUp() {
+            UIView.animate(withDuration: 0.12) { self.transform = .identity }
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            bgGradient.frame = bounds
+            frameGlow.frame  = bounds
+            iconLbl.frame    = CGRect(x: 0, y: bounds.height * 0.18, width: bounds.width, height: 80)
+            nameLbl.frame    = CGRect(x: 0, y: bounds.height - 90, width: bounds.width, height: 28)
+            statusLbl.frame  = CGRect(x: 0, y: bounds.height - 56, width: bounds.width, height: 20)
+        }
+    }
+
+    override init(frame: CGRect) {
+        forestTile = ZoneTile(
+            name: "Whispering Forest",
+            status: "Available — Lvl 1+",
+            icon: "🌲",
+            colorTop:    UIColor(red: 0.10, green: 0.32, blue: 0.14, alpha: 1),
+            colorBottom: UIColor(red: 0.04, green: 0.12, blue: 0.06, alpha: 1),
+            available: true)
+        desertTile = ZoneTile(
+            name: "Sunburnt Wastes",
+            status: "Coming Soon",
+            icon: "🏜",
+            colorTop:    UIColor(red: 0.85, green: 0.55, blue: 0.20, alpha: 1),
+            colorBottom: UIColor(red: 0.45, green: 0.22, blue: 0.05, alpha: 1),
+            available: false)
+        islandTile = ZoneTile(
+            name: "Drifting Isles",
+            status: "Coming Soon",
+            icon: "🏝",
+            colorTop:    UIColor(red: 0.20, green: 0.55, blue: 0.85, alpha: 1),
+            colorBottom: UIColor(red: 0.50, green: 0.40, blue: 0.20, alpha: 1),
+            available: false)
+        super.init(frame: frame)
+
+        backgroundColor = UIColor(white: 0, alpha: 0.78)
+        isUserInteractionEnabled = true
+
+        panel.backgroundColor   = UIColor(white: 0.05, alpha: 0.90)
+        panel.layer.cornerRadius = 22
+        panel.layer.borderWidth  = 1
+        panel.layer.borderColor  = UIColor.white.withAlphaComponent(0.20).cgColor
+        addSubview(panel)
+
+        titleLbl.text = "Choose Your Destination"
+        titleLbl.font = .systemFont(ofSize: 26, weight: .heavy)
+        titleLbl.textColor = .white
+        titleLbl.textAlignment = .center
+        titleLbl.layer.shadowColor   = UIColor.black.cgColor
+        titleLbl.layer.shadowOpacity = 0.7
+        titleLbl.layer.shadowRadius  = 4
+        titleLbl.layer.shadowOffset  = .zero
+        panel.addSubview(titleLbl)
+
+        for tile in [forestTile, desertTile, islandTile] { panel.addSubview(tile) }
+        forestTile.addTarget(self, action: #selector(tapForest), for: .touchUpInside)
+        desertTile.addTarget(self, action: #selector(tapDesert), for: .touchUpInside)
+        islandTile.addTarget(self, action: #selector(tapIsland), for: .touchUpInside)
+
+        closeBtn.setTitle("✕  Close", for: .normal)
+        closeBtn.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
+        closeBtn.tintColor = UIColor(white: 0.85, alpha: 1)
+        closeBtn.addTarget(self, action: #selector(tapClose), for: .touchUpInside)
+        panel.addSubview(closeBtn)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    @objc private func tapForest()  { onForest?() }
+    @objc private func tapDesert()  { onComingSoon?("Sunburnt Wastes") }
+    @objc private func tapIsland()  { onComingSoon?("Drifting Isles") }
+    @objc private func tapClose()   { onForest?() }   // dismiss = same as continue in current zone
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let isPad = traitCollection.horizontalSizeClass == .regular
+        let panelW = isPad ? min(bounds.width - 80, 920) : min(bounds.width - 32, 380)
+        let panelH = isPad ? CGFloat(560) : CGFloat(620)
+        panel.frame = CGRect(x: (bounds.width - panelW) / 2,
+                             y: (bounds.height - panelH) / 2,
+                             width: panelW, height: panelH)
+
+        titleLbl.frame = CGRect(x: 0, y: 24, width: panelW, height: 36)
+
+        let pad: CGFloat = 18
+        let bottomPad: CGFloat = 60   // room for close button
+        let topY = titleLbl.frame.maxY + 18
+        let availableH = panelH - topY - bottomPad
+        // Tablet: 3 horizontal tiles. Phone: 3 vertical stacked tiles.
+        if isPad {
+            let tileW = (panelW - pad * 4) / 3
+            let tileH = availableH
+            for (i, tile) in [forestTile, desertTile, islandTile].enumerated() {
+                tile.frame = CGRect(x: pad + CGFloat(i) * (tileW + pad), y: topY, width: tileW, height: tileH)
+            }
+        } else {
+            let tileH = (availableH - pad * 2) / 3
+            for (i, tile) in [forestTile, desertTile, islandTile].enumerated() {
+                tile.frame = CGRect(x: pad, y: topY + CGFloat(i) * (tileH + pad),
+                                    width: panelW - pad * 2, height: tileH)
+            }
+        }
+
+        closeBtn.frame = CGRect(x: 0, y: panelH - 44, width: panelW, height: 32)
+    }
+}
+
 @MainActor
 class GameViewController: UIViewController, MTKViewDelegate {
 
@@ -311,6 +502,11 @@ class GameViewController: UIViewController, MTKViewDelegate {
     private var levelLabel:   UILabel!
     private var labelStagingBuf: [UInt8]
 
+    // Zone-portal destination map UI (shown when player walks into the gate)
+    private var portalMapView: PortalMapView!
+    private var portalUIVisible: Bool = false
+    private var portalCooldown:  Float = 0     // seconds — block re-show after dismiss
+
     // GBuffer textures (recreated on resize)
     var albedoTex:   MTLTexture?
     var normalTex:   MTLTexture?
@@ -421,8 +617,18 @@ class GameViewController: UIViewController, MTKViewDelegate {
         let w  = Float(view.drawableSize.width)
         let h  = Float(view.drawableSize.height)
 
-        // 1. Tick game
-        game_update(dt)
+        // Portal proximity → surface destination map UI when the player
+        // walks into the gate. Cooldown prevents immediate re-show after
+        // dismiss while the player is still standing inside the radius.
+        if portalCooldown > 0 { portalCooldown -= dt }
+        if !portalUIVisible && portalCooldown <= 0 && game_player_at_portal() == 1 {
+            presentPortalUI()
+        }
+
+        // 1. Tick game (frozen while the portal UI is shown)
+        if !portalUIVisible {
+            game_update(dt)
+        }
 
         // Update stat + XP bars + level label
         var hp: Float = 0, hpMax: Float = 0, mp: Float = 0, mpMax: Float = 0, xpFrac: Float = 0
@@ -761,6 +967,42 @@ class GameViewController: UIViewController, MTKViewDelegate {
         levelLabel.layer.shadowOpacity = 1.0
         levelLabel.layer.shadowOffset  = .zero
         view.addSubview(levelLabel)
+
+        // ── Zone-portal destination map (hidden until the player walks into the gate)
+        portalMapView = PortalMapView(frame: view.bounds)
+        portalMapView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        portalMapView.isHidden = true
+        portalMapView.onForest = { [weak self] in self?.dismissPortalUI() }
+        portalMapView.onComingSoon = { [weak self] zone in self?.showComingSoonAlert(zone: zone) }
+        view.addSubview(portalMapView)
+    }
+
+    // ── Portal map UI helpers ────────────────────────────────────────────────
+    private func presentPortalUI() {
+        guard !portalUIVisible else { return }
+        portalUIVisible = true
+        portalMapView.alpha = 0
+        portalMapView.isHidden = false
+        UIView.animate(withDuration: 0.25) { self.portalMapView.alpha = 1 }
+    }
+
+    private func dismissPortalUI() {
+        guard portalUIVisible else { return }
+        portalUIVisible = false
+        portalCooldown  = 1.5   // seconds — prevent immediate re-trigger if still inside radius
+        UIView.animate(withDuration: 0.20, animations: { self.portalMapView.alpha = 0 }) { _ in
+            self.portalMapView.isHidden = true
+        }
+    }
+
+    private func showComingSoonAlert(zone: String) {
+        let ac = UIAlertController(title: zone,
+                                    message: "This realm hasn't been forged yet.\n\nThe portal here only routes back to the Whispering Forest for now.",
+                                    preferredStyle: .alert)
+        ac.addAction(UIAlertAction(title: "OK", style: .default) { [weak self] _ in
+            self?.dismissPortalUI()
+        })
+        present(ac, animated: true)
     }
 
     @objc private func lightningSkillTapped() {
