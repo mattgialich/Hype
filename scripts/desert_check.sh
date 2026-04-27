@@ -183,7 +183,7 @@ rc=$?
 hdr "8. File-size guard (catch Qwen truncation)"
 declare -A MIN_LINES=(
   ["src/main.zig"]=600
-  ["src/game/enemy_ai.zig"]=400
+  ["src/game/enemy_ai.zig"]=580
   ["shaders/world.metal"]=900
   ["ios/Mesh.swift"]=1700
   ["ios/GameViewController.swift"]=1700

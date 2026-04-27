@@ -1,7 +1,13 @@
 // enemy_ai.zig — enemy behavior state machine
 //
-// States:  0=patrol  1=alert  2=chase  3=regroup
+// States:  0=patrol  1=alert  2=chase  3=regroup  4=telegraph  5=strike  6=recover
 // Types:   mesh_id=3 → Gargoyle (fast flyer, swoops player)
+//
+// Attack cycle: CHASE → (player enters melee) → TELEGRAPH (windup, no damage,
+// enemy flashes red and faces player) → STRIKE (single damage tick if player
+// still in range, particle burst + camera kick + player hit-flash) → RECOVER
+// (cooldown, no movement) → CHASE.  The telegraph window gives the player
+// a chance to dodge.
 //
 // Adding a new enemy type:
 //   1. Write a tick_<type>() function following the gargoyle pattern
@@ -13,6 +19,8 @@ const Vec3         = @import("../math/vec.zig").Vec3;
 const World        = @import("entity.zig").World;
 const EntityId     = @import("entity.zig").EntityId;
 const enemy_config = @import("enemy_config.zig");
+const Particles    = @import("../renderer/particles.zig");
+const renderer_mod = @import("../renderer/metal.zig");
 
 const MAX_E = @import("entity.zig").MAX_ENTITIES;
 
@@ -20,10 +28,94 @@ const MAX_E = @import("entity.zig").MAX_ENTITIES;
 // from player.bonuses (armour + dmg_reduce) when skill bonuses change.
 pub var player_dmg_taken_mult: f32 = 1.0;
 
-pub const PATROL  : u8 = 0;
-pub const ALERT   : u8 = 1;
-pub const CHASE   : u8 = 2;
-pub const REGROUP : u8 = 3;
+pub const PATROL    : u8 = 0;
+pub const ALERT     : u8 = 1;
+pub const CHASE     : u8 = 2;
+pub const REGROUP   : u8 = 3;
+pub const TELEGRAPH : u8 = 4;
+pub const STRIKE    : u8 = 5;
+pub const RECOVER   : u8 = 6;
+
+// Per-attack tunables passed into the shared telegraph→strike→recover handler.
+const StrikeParams = struct {
+    telegraph_t: f32,
+    recover_t:   f32,
+    kick:        f32,
+    burst:       Particles.EmitterPreset,
+    grace:       f32, // multiplier on melee_r when checking hit at strike time
+    windup_pull: f32, // m/s backward shove at telegraph entry (lean-back animation)
+    lunge_push:  f32, // m/s forward shove at strike (body lunges into the swing)
+};
+
+// Shared TELEGRAPH/STRIKE/RECOVER handler — called from each enemy tick at the
+// top of their state switch. Returns true if the state was attack-related and
+// the caller should skip the rest of its switch.
+fn handle_attack_states(
+    self: *EnemyAI, world: *World, id: EntityId, player_id: EntityId,
+    pp: Vec3, dt: f32, melee_r: f32, params: StrikeParams,
+) bool {
+    const dx  = pp.x - world.pos[id].x;
+    const dz  = pp.z - world.pos[id].z;
+    const dsq = dx * dx + dz * dz;
+    switch (self.state[id]) {
+        TELEGRAPH => {
+            // Frozen wind-up. Face player, flash red, no movement.
+            world.vel[id].x *= (1.0 - dt * 14.0);
+            world.vel[id].z *= (1.0 - dt * 14.0);
+            if (dsq > 0.01) {
+                const d = std.math.sqrt(dsq);
+                world.rot_y[id] = std.math.atan2(dx / d, dz / d);
+            }
+            // Re-set every tick so the red glow stays bright through the windup
+            // (main.zig decays hit_flash by dt each frame).
+            world.hit_flash[id] = 0.20;
+            self.timer[id] -= dt;
+            if (self.timer[id] <= 0) {
+                self.state[id] = STRIKE;
+                self.timer[id] = 0.05; // single-frame strike marker
+            }
+            return true;
+        },
+        STRIKE => {
+            // The body lunges forward into the swing (visible motion regardless
+            // of whether the swing connects). Apply once on STRIKE entry, then
+            // RECOVER's velocity damping bleeds it back to zero.
+            if (dsq > 0.001) {
+                const d = std.math.sqrt(dsq);
+                world.vel[id].x = (dx / d) * params.lunge_push;
+                world.vel[id].z = (dz / d) * params.lunge_push;
+            }
+            // The swing connects iff the player is still inside the (slightly
+            // generous) melee zone — telegraph gave them a window to dodge.
+            const grace_r = melee_r * params.grace;
+            if (dsq < grace_r * grace_r) {
+                if (enemy_config.get_by_mesh(world.mesh_id[id])) |cfg| {
+                    world.hp[player_id] -= cfg.damage * player_dmg_taken_mult;
+                    world.hit_flash[player_id] = 0.18;
+                    Particles.pending_burst = .{
+                        .kind = params.burst,
+                        .pos  = world.pos[player_id],
+                    };
+                    renderer_mod.pending_kick =
+                        @max(renderer_mod.pending_kick, params.kick);
+                }
+            }
+            self.state[id] = RECOVER;
+            self.timer[id] = params.recover_t;
+            return true;
+        },
+        RECOVER => {
+            // Brief stagger after the swing — no movement, can't re-attack
+            // until timer elapses.  Player has a window to punish.
+            world.vel[id].x *= (1.0 - dt * 6.0);
+            world.vel[id].z *= (1.0 - dt * 6.0);
+            self.timer[id] -= dt;
+            if (self.timer[id] <= 0) self.state[id] = CHASE;
+            return true;
+        },
+        else => return false,
+    }
+}
 
 pub const EnemyAI = struct {
     state : [MAX_E]u8   = [_]u8{PATROL}    ** MAX_E,
@@ -85,9 +177,22 @@ pub const EnemyAI = struct {
     {
         const AGGRO_R    : f32 = 18.0; // enter alert when player is this close
         const LEASH_R    : f32 = 38.0; // give up chase when this far from home
-        const MELEE_R    : f32 = 1.8;  // stop and lunge-pause at this distance
+        const MELEE_R    : f32 = 1.8;  // stop and wind up at this distance
         const CHASE_SPD  : f32 = 5.5;
         const PATROL_SPD : f32 = 1.2;
+        const STRIKE_PARAMS = StrikeParams{
+            .telegraph_t = 0.40,
+            .recover_t   = 0.55,
+            .kick        = 0.25,
+            .burst       = .embers,
+            .grace       = 1.4,
+            .windup_pull = 2.0,  // small lean — the gargoyle dives, doesn't rear back
+            .lunge_push  = 14.0, // sharp swoop into melee
+        };
+
+        // Telegraph / strike / recover states share a handler. Bail early so
+        // the wind-up freeze isn't fought by the patrol/chase logic below.
+        if (handle_attack_states(self, world, id, player_id, pp, dt, MELEE_R, STRIKE_PARAMS)) return;
 
         // Hover bob — always active regardless of state
         const phase = @as(f32, @floatFromInt(id)) * 1.3;
@@ -146,13 +251,10 @@ pub const EnemyAI = struct {
                     self.state[id] = REGROUP;
                     world.vel[id]  = Vec3.zero;
                 } else if (dsq < MELEE_R * MELEE_R) {
-                    // Melee hit — deal config damage to player once per stagger
-                    if (enemy_config.get_by_mesh(world.mesh_id[id])) |cfg| {
-                        world.hp[player_id] -= cfg.damage * player_dmg_taken_mult;
-                    }
+                    // Enter telegraph — damage is applied at the strike, not on touch.
+                    self.state[id] = TELEGRAPH;
+                    self.timer[id] = STRIKE_PARAMS.telegraph_t;
                     world.vel[id]  = Vec3.zero;
-                    self.state[id] = ALERT;
-                    self.timer[id] = 0.45;
                 } else if (dsq > 0.1) {
                     const d2 = std.math.sqrt(dsq);
                     world.vel[id].x = (dx / d2) * CHASE_SPD;
@@ -194,6 +296,17 @@ pub const EnemyAI = struct {
         const MELEE_R    : f32 = 1.5;
         const CHASE_SPD  : f32 = 8.5;
         const PATROL_SPD : f32 = 2.2;
+        const STRIKE_PARAMS = StrikeParams{
+            .telegraph_t = 0.20,
+            .recover_t   = 0.30,
+            .kick        = 0.20,
+            .burst       = .embers,
+            .grace       = 1.5,
+            .windup_pull = 2.5,  // wisp twitches back briefly
+            .lunge_push  = 10.0, // quick dart forward
+        };
+
+        if (handle_attack_states(self, world, id, player_id, pp, dt, MELEE_R, STRIKE_PARAMS)) return;
 
         // Higher hover than gargoyle, with bigger bob amplitude
         const phase = @as(f32, @floatFromInt(id)) * 1.7;
@@ -246,12 +359,16 @@ pub const EnemyAI = struct {
                     self.state[id] = REGROUP;
                     world.vel[id]  = Vec3.zero;
                 } else if (dsq < MELEE_R * MELEE_R) {
-                    if (enemy_config.get_by_mesh(world.mesh_id[id])) |cfg| {
-                        world.hp[player_id] -= cfg.damage * player_dmg_taken_mult;
+                    // Telegraph entry — shove the body backward for visible windup.
+                    if (dsq > 0.001) {
+                        const d_in = std.math.sqrt(dsq);
+                        world.vel[id].x = -(dx / d_in) * STRIKE_PARAMS.windup_pull;
+                        world.vel[id].z = -(dz / d_in) * STRIKE_PARAMS.windup_pull;
+                    } else {
+                        world.vel[id] = Vec3.zero;
                     }
-                    world.vel[id]  = Vec3.zero;
-                    self.state[id] = ALERT;
-                    self.timer[id] = 0.30;
+                    self.state[id] = TELEGRAPH;
+                    self.timer[id] = STRIKE_PARAMS.telegraph_t;
                 } else if (dsq > 0.1) {
                     const d2 = std.math.sqrt(dsq);
                     world.vel[id].x = (dx / d2) * CHASE_SPD;
@@ -287,6 +404,17 @@ pub const EnemyAI = struct {
         const MELEE_R    : f32 = 3.2;
         const CHASE_SPD  : f32 = 2.6;
         const PATROL_SPD : f32 = 0.5;
+        const STRIKE_PARAMS = StrikeParams{
+            .telegraph_t = 0.85,
+            .recover_t   = 1.10,
+            .kick        = 0.55,
+            .burst       = .ground_impact, // heavy dust slam
+            .grace       = 1.3,
+            .windup_pull = 4.0,  // big visible rear-back for the slam
+            .lunge_push  = 10.0, // heavy follow-through
+        };
+
+        if (handle_attack_states(self, world, id, player_id, pp, dt, MELEE_R, STRIKE_PARAMS)) return;
 
         // Grounded
         world.pos[id].y = 0;
@@ -336,12 +464,16 @@ pub const EnemyAI = struct {
                     self.state[id] = REGROUP;
                     world.vel[id]  = Vec3.zero;
                 } else if (dsq < MELEE_R * MELEE_R) {
-                    if (enemy_config.get_by_mesh(world.mesh_id[id])) |cfg| {
-                        world.hp[player_id] -= cfg.damage * player_dmg_taken_mult;
+                    // Telegraph entry — shove the body backward for visible windup.
+                    if (dsq > 0.001) {
+                        const d_in = std.math.sqrt(dsq);
+                        world.vel[id].x = -(dx / d_in) * STRIKE_PARAMS.windup_pull;
+                        world.vel[id].z = -(dz / d_in) * STRIKE_PARAMS.windup_pull;
+                    } else {
+                        world.vel[id] = Vec3.zero;
                     }
-                    world.vel[id]  = Vec3.zero;
-                    self.state[id] = ALERT;
-                    self.timer[id] = 1.10;   // slow recovery
+                    self.state[id] = TELEGRAPH;
+                    self.timer[id] = STRIKE_PARAMS.telegraph_t;
                 } else if (dsq > 0.1) {
                     const d2 = std.math.sqrt(dsq);
                     world.vel[id].x = (dx / d2) * CHASE_SPD;
@@ -377,6 +509,17 @@ pub const EnemyAI = struct {
         const MELEE_R    : f32 = 2.2;
         const CHASE_SPD  : f32 = 4.2;
         const PATROL_SPD : f32 = 1.4;
+        const STRIKE_PARAMS = StrikeParams{
+            .telegraph_t = 0.55,
+            .recover_t   = 0.55,
+            .kick        = 0.35,
+            .burst       = .embers,
+            .grace       = 1.4,
+            .windup_pull = 3.0,  // disciplined step back into a guard pose
+            .lunge_push  = 12.0, // committed sword swing forward
+        };
+
+        if (handle_attack_states(self, world, id, player_id, pp, dt, MELEE_R, STRIKE_PARAMS)) return;
 
         world.pos[id].y = 0;
         world.vel[id].y = 0;
@@ -428,12 +571,16 @@ pub const EnemyAI = struct {
                     self.state[id] = REGROUP;
                     world.vel[id]  = Vec3.zero;
                 } else if (dsq < MELEE_R * MELEE_R) {
-                    if (enemy_config.get_by_mesh(world.mesh_id[id])) |cfg| {
-                        world.hp[player_id] -= cfg.damage * player_dmg_taken_mult;
+                    // Telegraph entry — shove the body backward for visible windup.
+                    if (dsq > 0.001) {
+                        const d_in = std.math.sqrt(dsq);
+                        world.vel[id].x = -(dx / d_in) * STRIKE_PARAMS.windup_pull;
+                        world.vel[id].z = -(dz / d_in) * STRIKE_PARAMS.windup_pull;
+                    } else {
+                        world.vel[id] = Vec3.zero;
                     }
-                    world.vel[id]  = Vec3.zero;
-                    self.state[id] = ALERT;
-                    self.timer[id] = 0.55;
+                    self.state[id] = TELEGRAPH;
+                    self.timer[id] = STRIKE_PARAMS.telegraph_t;
                 } else if (dsq > 0.1) {
                     const d2 = std.math.sqrt(dsq);
                     world.vel[id].x = (dx / d2) * CHASE_SPD;
