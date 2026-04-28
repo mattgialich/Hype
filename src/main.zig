@@ -35,7 +35,30 @@ pub const Zone = enum(u32) { forest = 0, desert = 1, isles = 2 };
 var current_zone: Zone = .forest;
 
 export fn game_set_zone(zone_id: u32) void {
-    if (zone_id <= 2) current_zone = @enumFromInt(zone_id);
+    if (zone_id > 2 or !inited) return;
+    const new_zone: Zone = @enumFromInt(zone_id);
+    current_zone = new_zone;
+
+    // Tear down the old zone's entities + emitters, then re-spawn from scratch.
+    despawn_world();
+
+    // Drop the player in the zone's start spot (origin on land for forest /
+    // desert; centre of Lantern Hold for the isles since the rest is water).
+    const start_pos: Vec3 = switch (new_zone) {
+        .forest => Vec3.zero,
+        .desert => Vec3.zero,
+        .isles  => Vec3{ .x = isles_islands[0].cx, .y = isles_islands[0].y_deck, .z = isles_islands[0].cz },
+    };
+    world.pos[player.entity] = start_pos;
+    world.vel[player.entity] = Vec3.zero;
+    // Heal-on-travel — nicer feel than carrying low HP into a fresh zone.
+    world.hp[player.entity]  = world.hp_max[player.entity];
+
+    switch (new_zone) {
+        .forest => spawn_world_forest(),
+        .desert => spawn_world_desert(),
+        .isles  => spawn_world_isles(),
+    }
 }
 
 // ── Simple xorshift32 PRNG — seeded at compile time, deterministic but random-looking ──
@@ -218,8 +241,37 @@ export fn game_init() void {
     if (inited) return;
     player  = Player.init(&world);
     inited  = true;
+    spawn_world_forest();
+}
 
+// ── Zone (re)spawn helpers ───────────────────────────────────────────────────
+// Called by game_set_zone after despawn_world() clears the previous zone.
+// Each function repopulates the world from scratch: ambient particle emitters,
+// scenery, then enemies. Emitter slot 0 is always the player-attached
+// ambient_sparks (game_update syncs its position via psys.sync_emitter_pos(0)).
+
+// Despawn every entity except the player and reset the particle emitter pool
+// so the next spawn_world_*() starts from a clean slate. Bursts (one-shot
+// emitters with active=0) and pending mailbox entries are dropped too.
+fn despawn_world() void {
+    const MAX_E = @import("game/entity.zig").MAX_ENTITIES;
+    for (0..MAX_E) |i| {
+        const id: u16 = @intCast(i);
+        if (!world.alive[id]) continue;
+        if (id == player.entity) continue;
+        world.despawn(id);
+        world.death_t[id]   = 0;
+        world.hit_flash[id] = 0;
+        world.freeze_t[id]  = 0;
+        world.fx_flags[id]  = 0;
+    }
+    psys.emitter_count = 0;
+    Particles.pending_burst = null;
+}
+
+fn spawn_world_forest() void {
     // Spawn some ambient sparks on the player as a permanent emitter
+    // (slot 0 — game_update syncs its position to the player every frame).
     const spark_e = Particles.preset_emitter(.ambient_sparks, Vec3.zero);
     _ = psys.spawn_emitter(spark_e);
 
@@ -533,6 +585,279 @@ export fn game_init() void {
         world.vel[e]     = Vec3.zero;
         enemy_ai.register(e, world.pos[e]);
     }
+}
+
+// ── Desert (Sunburnt Wastes) ──────────────────────────────────────────────────
+// 64 bone obelisks at r=440 mark the boundary the clamp enforces at r=445.
+// Sparser scenery than the forest: rocks, dead trees, crystal clusters, a few
+// shrines and stone circles. No path/lantern row — the desert is open.
+fn spawn_world_desert() void {
+    const spark_e = Particles.preset_emitter(.ambient_sparks, Vec3.zero);
+    _ = psys.spawn_emitter(spark_e);
+
+    // Ember motes drifting across the heat shimmer
+    const ember_positions = [_][2]f32{
+        .{  60.0,  40.0 }, .{ -80.0,  50.0 }, .{  90.0, -60.0 }, .{ -70.0, -80.0 },
+        .{ 120.0,   0.0 }, .{    0.0, 120.0 }, .{ -120.0,   0.0 }, .{    0.0, -120.0 },
+    };
+    for (ember_positions) |ep| {
+        const e = Particles.preset_emitter(.embers, Vec3{ .x = ep[0], .y = 0.2, .z = ep[1] });
+        _ = psys.spawn_emitter(e);
+    }
+
+    // Scattered rocks — many, small. The desert reads as broken stone and bone.
+    for (0..520) |_| {
+        const angle = rng_f32() * 2.0 * std.math.pi;
+        const rr    = rng_radius(8.0, 430.0);
+        const re    = world.spawn();
+        world.pos[re]    = Vec3{ .x = std.math.cos(angle) * rr, .y = 0, .z = std.math.sin(angle) * rr };
+        world.mesh_id[re]= 5;
+        world.vel[re]    = Vec3.zero;
+        world.radius[re] = 0.4;
+        world.hp[re]     = 9999;
+        world.team[re]   = 9;
+        world.scale[re]  = rng_range(0.40, 1.4);
+    }
+
+    // Dead trees — bleached driftwood-style stumps, sparse.
+    for (0..120) |_| {
+        const angle = rng_f32() * 2.0 * std.math.pi;
+        const rr    = rng_radius(20.0, 425.0);
+        const e = world.spawn();
+        world.pos[e]     = Vec3{ .x = std.math.cos(angle) * rr, .y = 0, .z = std.math.sin(angle) * rr };
+        world.mesh_id[e] = 20;
+        world.scale[e]   = rng_range(1.5, 2.4);
+        world.team[e]    = 20;
+        world.hp[e]      = 9999;
+        world.radius[e]  = 0.6;
+        world.vel[e]     = Vec3.zero;
+    }
+
+    // Crystal clusters — desert geodes, more common than in the forest.
+    for (0..60) |_| {
+        const angle = rng_f32() * 2.0 * std.math.pi;
+        const rr    = rng_radius(30.0, 420.0);
+        const e = world.spawn();
+        world.pos[e]     = Vec3{ .x = std.math.cos(angle) * rr, .y = 0, .z = std.math.sin(angle) * rr };
+        world.mesh_id[e] = 18;
+        world.scale[e]   = rng_range(1.2, 2.2);
+        world.team[e]    = 18;
+        world.hp[e]      = 9999;
+        world.radius[e]  = 0.5;
+        world.vel[e]     = Vec3.zero;
+    }
+
+    // Tree stumps for low set dressing
+    for (0..80) |_| {
+        const angle = rng_f32() * 2.0 * std.math.pi;
+        const rr    = rng_radius(15.0, 425.0);
+        const e = world.spawn();
+        world.pos[e]     = Vec3{ .x = std.math.cos(angle) * rr, .y = 0, .z = std.math.sin(angle) * rr };
+        world.mesh_id[e] = 17;
+        world.scale[e]   = rng_range(0.9, 1.5);
+        world.team[e]    = 17;
+        world.hp[e]      = 9999;
+        world.radius[e]  = 0.4;
+        world.vel[e]     = Vec3.zero;
+    }
+
+    // Boundary obelisk ring — 64 monoliths at r=440 (clamp at 445).
+    const N_OBELISKS: usize = 64;
+    const OBELISK_R:  f32 = 440.0;
+    var i: usize = 0;
+    while (i < N_OBELISKS) : (i += 1) {
+        const angle = 2.0 * std.math.pi * @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(N_OBELISKS));
+        const e = world.spawn();
+        world.pos[e]     = Vec3{ .x = std.math.cos(angle) * OBELISK_R, .y = 0, .z = std.math.sin(angle) * OBELISK_R };
+        world.mesh_id[e] = 14;
+        world.scale[e]   = rng_range(2.6, 3.4);
+        world.team[e]    = 14;
+        world.hp[e]      = 9999;
+        world.radius[e]  = 0.6;
+        world.vel[e]     = Vec3.zero;
+        world.rot_y[e]   = rng_f32() * 2.0 * std.math.pi;
+    }
+
+    // Stone circles + shrines — rare landmarks across the dunes.
+    spawn_scatter_assets(15, 12, 1.5, 2.2, 60.0, 410.0, 6.0, 15);
+    spawn_scatter_assets(24,  8, 1.4, 1.8, 80.0, 400.0, 9.0, 24);
+    // A few crystal-eyed bonfires for atmosphere
+    spawn_scatter_assets(19,  5, 1.0, 1.4, 50.0, 380.0, 8.0, 19);
+
+    // Zone-transition portal at the back of the larger map
+    {
+        const e = world.spawn();
+        world.pos[e]     = Vec3{ .x = 0, .y = 0, .z = -PATH_LEN };
+        world.mesh_id[e] = 13;
+        world.scale[e]   = 2.8;
+        world.team[e]    = 13;
+        world.hp[e]      = 9999;
+        world.radius[e]  = 1.5;
+        world.vel[e]     = Vec3.zero;
+    }
+
+    // Enemies — gargoyles + skeleton knights patrolling, no wisps/ents.
+    const gargoyle_positions = [_][2]f32{
+        .{  40.0,   20.0 }, .{ -45.0,   30.0 }, .{  60.0,  -50.0 }, .{ -70.0,  -30.0 },
+        .{  90.0,   10.0 }, .{ -85.0,   45.0 }, .{ 100.0,  -90.0 }, .{ -95.0, -100.0 },
+        .{ 150.0,    0.0 }, .{ -160.0,    0.0 }, .{    0.0, 150.0 }, .{    0.0, -150.0 },
+    };
+    const gargoyle_cfg = enemy_config.get_by_mesh(3).?;
+    for (gargoyle_positions) |gp| {
+        const ge = world.spawn();
+        world.pos[ge]     = Vec3{ .x = gp[0], .y = 1.5, .z = gp[1] };
+        world.mesh_id[ge] = 3;
+        world.scale[ge]   = 3.0;
+        world.team[ge]    = 1;
+        world.hp[ge]      = gargoyle_cfg.hp_max;
+        world.hp_max[ge]  = gargoyle_cfg.hp_max;
+        world.radius[ge]  = 0.35;
+        world.vel[ge]     = Vec3.zero;
+        enemy_ai.register(ge, world.pos[ge]);
+    }
+    const knight_positions = [_][2]f32{
+        .{  30.0,  -50.0 }, .{ -25.0,  -85.0 }, .{  60.0, -130.0 }, .{ -55.0, -160.0 },
+        .{  80.0, -200.0 }, .{ -70.0, -240.0 }, .{ 110.0, -280.0 }, .{ -100.0, -320.0 },
+    };
+    const knight_cfg = enemy_config.get_by_mesh(27).?;
+    for (knight_positions) |kp| {
+        const e = world.spawn();
+        world.pos[e]     = Vec3{ .x = kp[0], .y = 0, .z = kp[1] };
+        world.mesh_id[e] = 27;
+        world.scale[e]   = rng_range(1.7, 2.0);
+        world.team[e]    = 1;
+        world.hp[e]      = knight_cfg.hp_max;
+        world.hp_max[e]  = knight_cfg.hp_max;
+        world.radius[e]  = 0.40;
+        world.vel[e]     = Vec3.zero;
+        enemy_ai.register(e, world.pos[e]);
+    }
+}
+
+// ── Drifting Isles ────────────────────────────────────────────────────────────
+// Six islands chained by walkable bridges. The water-clamp in game_update
+// snaps the player back to land if they leave a deck/bridge. Each island gets
+// a small cluster of trees, rocks, and a landmark; bridges are kept clear.
+fn spawn_world_isles() void {
+    const spark_e = Particles.preset_emitter(.ambient_sparks, Vec3.zero);
+    _ = psys.spawn_emitter(spark_e);
+
+    // Firefly motes drifting over the water near each island
+    for (isles_islands) |isl| {
+        const e = Particles.preset_emitter(.fireflies, Vec3{ .x = isl.cx, .y = isl.y_deck + 1.0, .z = isl.cz });
+        _ = psys.spawn_emitter(e);
+    }
+
+    // Per-island scatter: trees, rocks, stumps, with a few crystal landmarks
+    // and a shrine on the largest island. Bridges stay clear (2.5m halo around
+    // each segment) so players don't get blocked walking between islands.
+    for (isles_islands) |isl| {
+        // Trees — scatter inside a band [0.30 * r, 0.85 * r] from island centre.
+        const tree_count: u32 = @intFromFloat(@floor(isl.radius * 0.55));
+        var ti: u32 = 0;
+        while (ti < tree_count) : (ti += 1) {
+            const angle = rng_f32() * 2.0 * std.math.pi;
+            const rr    = rng_radius(isl.radius * 0.30, isl.radius * 0.85);
+            const px = isl.cx + std.math.cos(angle) * rr;
+            const pz = isl.cz + std.math.sin(angle) * rr;
+            // Skip if too close to a bridge (bridges are walkable corridors).
+            if (near_isles_bridge(px, pz, 5.0)) continue;
+            const e = world.spawn();
+            world.pos[e]     = Vec3{ .x = px, .y = isl.y_deck, .z = pz };
+            world.mesh_id[e] = if (rng_u32() % 3 == 0) 4 else 2;
+            world.vel[e]     = Vec3.zero;
+            world.radius[e]  = 0.9;
+            world.hp[e]      = 9999;
+            world.team[e]    = @intCast(2 + rng_u32() % 3); // green / teal / violet
+            world.scale[e]   = rng_range(1.6, 2.6);
+        }
+        // Rocks — small scatter
+        const rock_count: u32 = @intFromFloat(@floor(isl.radius * 0.20));
+        var ri: u32 = 0;
+        while (ri < rock_count) : (ri += 1) {
+            const angle = rng_f32() * 2.0 * std.math.pi;
+            const rr    = rng_radius(isl.radius * 0.10, isl.radius * 0.90);
+            const px = isl.cx + std.math.cos(angle) * rr;
+            const pz = isl.cz + std.math.sin(angle) * rr;
+            if (near_isles_bridge(px, pz, 3.0)) continue;
+            const e = world.spawn();
+            world.pos[e]     = Vec3{ .x = px, .y = isl.y_deck, .z = pz };
+            world.mesh_id[e] = 5;
+            world.vel[e]     = Vec3.zero;
+            world.radius[e]  = 0.4;
+            world.hp[e]      = 9999;
+            world.team[e]    = 9;
+            world.scale[e]   = rng_range(0.40, 1.0);
+        }
+        // Crystal cluster centerpiece per island
+        {
+            const e = world.spawn();
+            world.pos[e]     = Vec3{ .x = isl.cx, .y = isl.y_deck, .z = isl.cz + isl.radius * 0.3 };
+            world.mesh_id[e] = 18;
+            world.scale[e]   = rng_range(1.6, 2.4);
+            world.team[e]    = 18;
+            world.hp[e]      = 9999;
+            world.radius[e]  = 0.5;
+            world.vel[e]     = Vec3.zero;
+        }
+    }
+
+    // Zone-transition portal on the FINAL (Far Reach) island
+    {
+        const isl = isles_islands[isles_islands.len - 1];
+        const e = world.spawn();
+        world.pos[e]     = Vec3{ .x = isl.cx, .y = isl.y_deck, .z = isl.cz - isl.radius * 0.3 };
+        world.mesh_id[e] = 13;
+        world.scale[e]   = 2.8;
+        world.team[e]    = 13;
+        world.hp[e]      = 9999;
+        world.radius[e]  = 1.5;
+        world.vel[e]     = Vec3.zero;
+    }
+
+    // Enemies — wisps over the water/decks (they can fly), gargoyles roam.
+    const gargoyle_cfg = enemy_config.get_by_mesh(3).?;
+    for (isles_islands) |isl| {
+        if (isl.radius < 150.0) continue; // skip the small Skywatch
+        const ge = world.spawn();
+        world.pos[ge]     = Vec3{ .x = isl.cx, .y = isl.y_deck + 1.5, .z = isl.cz };
+        world.mesh_id[ge] = 3;
+        world.scale[ge]   = 3.0;
+        world.team[ge]    = 1;
+        world.hp[ge]      = gargoyle_cfg.hp_max;
+        world.hp_max[ge]  = gargoyle_cfg.hp_max;
+        world.radius[ge]  = 0.35;
+        world.vel[ge]     = Vec3.zero;
+        enemy_ai.register(ge, world.pos[ge]);
+    }
+    const wisp_cfg = enemy_config.get_by_mesh(25).?;
+    for (isles_islands) |isl| {
+        var wi: u32 = 0;
+        while (wi < 2) : (wi += 1) {
+            const angle = rng_f32() * 2.0 * std.math.pi;
+            const rr    = rng_radius(isl.radius * 0.4, isl.radius * 0.85);
+            const e = world.spawn();
+            world.pos[e]     = Vec3{ .x = isl.cx + std.math.cos(angle) * rr, .y = isl.y_deck + 2.5, .z = isl.cz + std.math.sin(angle) * rr };
+            world.mesh_id[e] = 25;
+            world.scale[e]   = rng_range(1.4, 2.0);
+            world.team[e]    = 1;
+            world.hp[e]      = wisp_cfg.hp_max;
+            world.hp_max[e]  = wisp_cfg.hp_max;
+            world.radius[e]  = 0.30;
+            world.vel[e]     = Vec3.zero;
+            enemy_ai.register(e, world.pos[e]);
+        }
+    }
+}
+
+// True if (px, pz) is within `halo` metres of any walkable bridge segment.
+fn near_isles_bridge(px: f32, pz: f32, halo: f32) bool {
+    inline for (isles_bridges) |br| {
+        const r = segment_dist_sq_t(px, pz, br.ax, br.az, br.bx, br.bz);
+        const hw = br.half_width + halo;
+        if (r.d2 <= hw * hw) return true;
+    }
+    return false;
 }
 
 export fn game_update(dt: f32) void {
