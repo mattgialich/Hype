@@ -697,7 +697,10 @@ fn spawn_world_desert() void {
     }
 
     // Enemies — gargoyles + skeleton knights patrolling, no wisps/ents.
+    // First two gargoyles are deliberately ~14m from spawn so the player sees
+    // an enemy immediately on arrival; the rest fan out across the dunes.
     const gargoyle_positions = [_][2]f32{
+        .{  12.0,   8.0 }, .{ -12.0,   8.0 },
         .{  40.0,   20.0 }, .{ -45.0,   30.0 }, .{  60.0,  -50.0 }, .{ -70.0,  -30.0 },
         .{  90.0,   10.0 }, .{ -85.0,   45.0 }, .{ 100.0,  -90.0 }, .{ -95.0, -100.0 },
         .{ 150.0,    0.0 }, .{ -160.0,    0.0 }, .{    0.0, 150.0 }, .{    0.0, -150.0 },
@@ -815,6 +818,26 @@ fn spawn_world_isles() void {
         world.vel[e]     = Vec3.zero;
     }
 
+    // Welcome wisps — three flying right next to the player's spawn on
+    // Lantern Hold so the visual change is unmistakable on arrival.
+    const wisp_cfg = enemy_config.get_by_mesh(25).?;
+    {
+        const isl0 = isles_islands[0];
+        const welcome_offsets = [_][2]f32{ .{ 12.0, 0.0 }, .{ -10.0, 6.0 }, .{ 0.0, -14.0 } };
+        for (welcome_offsets) |o| {
+            const e = world.spawn();
+            world.pos[e]     = Vec3{ .x = isl0.cx + o[0], .y = isl0.y_deck + 2.5, .z = isl0.cz + o[1] };
+            world.mesh_id[e] = 25;
+            world.scale[e]   = 1.7;
+            world.team[e]    = 1;
+            world.hp[e]      = wisp_cfg.hp_max;
+            world.hp_max[e]  = wisp_cfg.hp_max;
+            world.radius[e]  = 0.30;
+            world.vel[e]     = Vec3.zero;
+            enemy_ai.register(e, world.pos[e]);
+        }
+    }
+
     // Enemies — wisps over the water/decks (they can fly), gargoyles roam.
     const gargoyle_cfg = enemy_config.get_by_mesh(3).?;
     for (isles_islands) |isl| {
@@ -830,7 +853,6 @@ fn spawn_world_isles() void {
         world.vel[ge]     = Vec3.zero;
         enemy_ai.register(ge, world.pos[ge]);
     }
-    const wisp_cfg = enemy_config.get_by_mesh(25).?;
     for (isles_islands) |isl| {
         var wi: u32 = 0;
         while (wi < 2) : (wi += 1) {
@@ -1013,6 +1035,7 @@ export fn game_get_frame_uniforms(
 ) void {
     var frame = renderer.build_frame(aspect, time, screen_w, screen_h, &psys);
     frame.uniforms.walk_phase = walk_phase;
+    frame.uniforms.zone = @intFromEnum(current_zone);
     const bytes = std.mem.asBytes(&frame.uniforms);
     @memcpy(out_ptr[0..bytes.len], bytes);
 }

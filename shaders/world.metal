@@ -12,7 +12,7 @@ struct FrameUniforms {
     float         time;
     float2        resolution;
     float         walk_phase; // advances only while player moves
-    float         _pad;
+    uint          zone;       // 0=forest, 1=desert, 2=isles — ground palette switch
 };
 
 // Must match renderer/metal.zig DrawCall (88 bytes, 4-byte aligned).
@@ -216,6 +216,47 @@ fragment float4 frag_world_forward(
         float sparkleMask = smoothstep(0.992, 0.998, sparkleHash);
         float3 sparkle    = float3(0.6, 0.7, 0.9) * sparkleMask;
 
+        // ── Per-zone ground palette override ────────────────────────────────
+        // Desert (zone 1): bake the moss palette out and replace with a tan /
+        // cracked-earth / bleached-bone palette driven by the same patch +
+        // bias noise so the spatial structure matches the scenery scatter.
+        // Isles (zone 2): replace with a deep teal sea with shallow shoals near
+        // each island centre and a light shore band where they meet.
+        if (frame.zone == 1u) {
+            float3 sandLight = float3(0.78, 0.66, 0.42);
+            float3 sandDark  = float3(0.55, 0.42, 0.22);
+            float3 crackedEarth = float3(0.42, 0.30, 0.18);
+            float3 bone      = float3(0.90, 0.86, 0.72);
+            float3 desertCol = mix(sandDark, sandLight, bias);
+            desertCol = mix(desertCol, crackedEarth, smoothstep(0.55, 0.80, patch));
+            // Bleached bone spots — rare bright patches
+            float boneHash = hash21(floor(wxz * 1.0));
+            float boneMask = smoothstep(0.96, 0.99, boneHash) * (1.0 - smoothstep(0.65, 0.85, patch));
+            desertCol = mix(desertCol, bone, boneMask * 0.7);
+            desertCol *= 0.85 + 0.30 * grass;
+            // Heat-haze shimmer instead of dapple
+            float heat = valueNoise3(float3(wxz.x * 0.20 + frame.time * 0.10, 7.0, wxz.y * 0.20));
+            heat = smoothstep(0.55, 0.80, heat);
+            desertCol += float3(0.50, 0.36, 0.18) * heat * 0.18;
+            col = desertCol;
+            sparkle = float3(0); // no dew sparkles in the desert
+        } else if (frame.zone == 2u) {
+            // Big-wave undulation + foam rim. Two superimposed sin waves animate
+            // slowly via frame.time so the sea visibly moves under the player.
+            float wave1 = sin(wxz.x * 0.06 + frame.time * 0.7);
+            float wave2 = sin(wxz.y * 0.08 + frame.time * 0.55);
+            float wave  = (wave1 + wave2) * 0.5;
+            float3 seaDeep    = float3(0.04, 0.16, 0.28);
+            float3 seaShallow = float3(0.10, 0.32, 0.42);
+            float3 seaCol     = mix(seaDeep, seaShallow, 0.5 + 0.5 * wave);
+            // Foam — fbm crests at high values of the wave noise
+            float foamN = valueNoise3(float3(wxz.x * 0.5 + frame.time * 0.3, 11.0, wxz.y * 0.5));
+            float foam  = smoothstep(0.78, 0.92, foamN);
+            seaCol = mix(seaCol, float3(0.85, 0.92, 0.95), foam * 0.55);
+            col = seaCol;
+            sparkle = float3(0.5, 0.7, 0.9) * smoothstep(0.85, 0.97, foamN); // wave-tip glints
+        }
+
         // ── Winding curved path from start (0,0) to the portal at (0,-180) ──
         // Two superimposed waves (one sin, one cos at different frequencies)
         // produce a richly winding line; the bell-curve envelope pinches it
@@ -241,14 +282,16 @@ fragment float4 frag_world_forward(
         float inSegment = saturate((-pz + 2.0) * 0.5) * saturate((pz + PATH_LEN + 2.0) * 0.5);
         float pathBlend = (1.0 - smoothstep(pathRadius, pathRadius + 0.8, across)) * inSegment;
 
-        // CLEARING ZONE around the path — biases toward moss/leaves (no dark earth)
-        // and adds a faint warm ambient glow that suggests a sunlit cleared trail.
-        float clearingRadius = pathRadius + 8.0;
-        float clearingBlend  = (1.0 - smoothstep(clearingRadius - 4.0, clearingRadius, across)) * inSegment;
-        float3 clearingCol   = mix(mossLight, leaves, smoothstep(0.55, 0.85, patch) * bias);
-        clearingCol         *= 0.90 + 0.25 * grass;
-        col = mix(col, clearingCol, clearingBlend * 0.75);
-        col += float3(0.09, 0.06, 0.03) * clearingBlend * 0.45;
+        // CLEARING ZONE around the path — forest-only, since the moss/leaves
+        // blend would muddy the sand or sea palette.
+        if (frame.zone == 0u) {
+            float clearingRadius = pathRadius + 8.0;
+            float clearingBlend  = (1.0 - smoothstep(clearingRadius - 4.0, clearingRadius, across)) * inSegment;
+            float3 clearingCol   = mix(mossLight, leaves, smoothstep(0.55, 0.85, patch) * bias);
+            clearingCol         *= 0.90 + 0.25 * grass;
+            col = mix(col, clearingCol, clearingBlend * 0.75);
+            col += float3(0.09, 0.06, 0.03) * clearingBlend * 0.45;
+        }
 
         // PATH DIRT — warm trodden brown with dark centerline rut, picks up grass detail.
         // Cool earth tone at the start; warms toward rust as it approaches the portal.
@@ -279,16 +322,36 @@ fragment float4 frag_world_forward(
         slabBase        *= 1.0 - saturate(grout) * 0.35;
 
         float3 surface = mix(pathDirt, slabBase, pavingMask);
-        col = mix(col, surface, pathBlend);
+        // Only blend the curving path + cobblestones onto the forest floor —
+        // the desert is open dunes and the isles are sea, neither has a path.
+        if (frame.zone == 0u) {
+            col = mix(col, surface, pathBlend);
+        }
 
-        // Forest lighting (matches what other meshes use at the bottom of the function)
+        // Per-zone ground lighting — desert has a hot yellow sun and warm
+        // bounce ambient; isles have a cool blue sky reflecting on water; forest
+        // keeps the original green-tinted canopy ambient.
         float3 L = normalize(float3(0.4, 1.0, 0.25));
         float3 N = normalize(in.normal);
         float  diff = max(dot(N, L), 0.0);
         float  back = max(dot(N, -L), 0.0);
-        float3 ambient = col * float3(0.10, 0.22, 0.11);
-        float3 diffuse = col * float3(1.5, 1.35, 0.90) * diff;
-        float3 rimback = col * float3(0.02, 0.18, 0.06) * back;
+        float3 ambientTint, diffuseTint, rimTint;
+        if (frame.zone == 1u) {
+            ambientTint = float3(0.28, 0.20, 0.10);
+            diffuseTint = float3(1.7, 1.45, 0.85);
+            rimTint     = float3(0.18, 0.08, 0.02);
+        } else if (frame.zone == 2u) {
+            ambientTint = float3(0.10, 0.20, 0.30);
+            diffuseTint = float3(1.2, 1.30, 1.50);
+            rimTint     = float3(0.05, 0.10, 0.20);
+        } else {
+            ambientTint = float3(0.10, 0.22, 0.11);
+            diffuseTint = float3(1.5, 1.35, 0.90);
+            rimTint     = float3(0.02, 0.18, 0.06);
+        }
+        float3 ambient = col * ambientTint;
+        float3 diffuse = col * diffuseTint * diff;
+        float3 rimback = col * rimTint * back;
         return float4(ambient + diffuse + rimback + sparkle, 1.0);
     }
 

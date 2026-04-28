@@ -7,7 +7,7 @@ const Mat4 = @import("../math/vec.zig").Mat4;
 const Vec3 = @import("../math/vec.zig").Vec3;
 const Particles = @import("particles.zig");
 
-// Matches FrameUniforms in world.metal
+// Matches FrameUniforms in world.metal (160 bytes total)
 pub const FrameUniforms = extern struct {
     view_proj:     [16]f32,
     view_proj_inv: [16]f32,
@@ -15,7 +15,7 @@ pub const FrameUniforms = extern struct {
     time:          f32,
     resolution:    [2]f32,
     walk_phase:    f32    = 0,
-    _pad:          f32    = 0,
+    zone:          u32    = 0,    // 0=forest, 1=desert, 2=isles — drives ground palette
 };
 
 // Per-object draw call data uploaded to MTLBuffer
