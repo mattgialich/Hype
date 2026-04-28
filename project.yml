@@ -55,6 +55,13 @@ targets:
 
     preBuildScripts:
       - name: Build Zig Static Libs
+        # Force this script to run on every build. Without this, Xcode
+        # caches the script's run based on outputFiles, so updates to
+        # the Zig sources don't trigger a rebuild and the resulting
+        # static lib silently goes stale (Swift fails to link new exports
+        # like _game_get_zone). zig build itself is incremental, so
+        # re-running every build is cheap.
+        basedOnDependencyAnalysis: false
         shell: /bin/zsh
         script: |
           export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"

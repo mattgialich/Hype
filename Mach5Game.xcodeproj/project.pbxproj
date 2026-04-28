@@ -156,6 +156,7 @@
 /* Begin PBXShellScriptBuildPhase section */
 		70BDAFE6B6E5255C47155D6A /* Build Zig Static Libs */ = {
 			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
