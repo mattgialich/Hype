@@ -13,6 +13,7 @@
 		A44E83C5A20A85EB3B94EEDA /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3F071C0F2E174A9079DA6E88 /* Foundation.framework */; };
 		B392AFE5DD799017F8D71D71 /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 738A4D7CFA25CD2BF9A3294D /* MetalKit.framework */; };
 		BA36FB5DCEC31D5342335F34 /* GameViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6C93F6C674F77ECD9C7FB6F /* GameViewController.swift */; };
+		9F1A2B3C4D5E6F7081929395 /* PortalMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F1A2B3C4D5E6F7081929394 /* PortalMapView.swift */; };
 		BA7F80727C38EB0025EC5D34 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DF392B359A93823B2498B54B /* Metal.framework */; };
 		BBD6F383A39E885F415E8E2F /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2EEC8C10EB10B5E43175AB78 /* UIKit.framework */; };
 		C568B9BEE2387936305744F0 /* particles.metal in Sources */ = {isa = PBXBuildFile; fileRef = C03E0E635FDDDE2EB7F332C5 /* particles.metal */; };
@@ -31,6 +32,7 @@
 		839EA03B3F36564AF9E07793 /* Mesh.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mesh.swift; sourceTree = "<group>"; };
 		C03E0E635FDDDE2EB7F332C5 /* particles.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = particles.metal; sourceTree = "<group>"; };
 		C6C93F6C674F77ECD9C7FB6F /* GameViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameViewController.swift; sourceTree = "<group>"; };
+		9F1A2B3C4D5E6F7081929394 /* PortalMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalMapView.swift; sourceTree = "<group>"; };
 		DF392B359A93823B2498B54B /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = Metal.framework; sourceTree = "<group>"; };
 		EF8A50791B77A50B7231EAB9 /* postprocess.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = postprocess.metal; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -89,6 +91,7 @@
 				70C919AEB022F78668E7C463 /* AppDelegate.swift */,
 				C6C93F6C674F77ECD9C7FB6F /* GameViewController.swift */,
 				839EA03B3F36564AF9E07793 /* Mesh.swift */,
+				9F1A2B3C4D5E6F7081929394 /* PortalMapView.swift */,
 			);
 			path = ios;
 			sourceTree = "<group>";
@@ -185,6 +188,7 @@
 				83919FB44797AAAC45920FFD /* AppDelegate.swift in Sources */,
 				BA36FB5DCEC31D5342335F34 /* GameViewController.swift in Sources */,
 				3BC916F7C2C0C71CD0152F57 /* Mesh.swift in Sources */,
+				9F1A2B3C4D5E6F7081929395 /* PortalMapView.swift in Sources */,
 				C568B9BEE2387936305744F0 /* particles.metal in Sources */,
 				EC43CBFD0ECA8144C9732E62 /* postprocess.metal in Sources */,
 				6950BDC991D995C3280395BC /* world.metal in Sources */,
