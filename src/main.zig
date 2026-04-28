@@ -1207,6 +1207,23 @@ export fn game_get_enemy_labels(buf: [*]u8, out_count: *u32) void {
     out_count.* = count;
 }
 
+// Returns the player's world XZ position (Y is always 0 for the joystick plane
+// today). Swift uses this in the travel banner to verify game_set_zone has
+// actually teleported the player after a switch — if the values aren't (0, 0)
+// for forest/desert or Lantern Hold for isles, the static lib is stale.
+export fn game_get_player_pos(out_x: *f32, out_y: *f32, out_z: *f32) void {
+    const p = world.pos[player.entity];
+    out_x.* = p.x;
+    out_y.* = p.y;
+    out_z.* = p.z;
+}
+
+// Returns the current zone id (0=forest, 1=desert, 2=isles). Swift uses this
+// to drive per-zone UI like the MTKView clear color.
+export fn game_get_zone() u32 {
+    return @intFromEnum(current_zone);
+}
+
 // Returns 1 if the player is within `r` meters of the zone-portal at (0, 0, -PATH_LEN).
 // Swift polls this each frame to decide when to surface the destination map UI.
 export fn game_player_at_portal() u32 {

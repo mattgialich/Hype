@@ -55,3 +55,12 @@ void game_set_zone(uint32_t zone_id);
 // entries (level, xp, xp_to_next) — order matches the 4 hotbar slots:
 // 0=fireball, 1=lightning, 2=ice_nova, 3=dash.
 void game_get_spell_state(uint8_t* buf);
+
+// Player world position (used by the travel banner to confirm game_set_zone
+// actually teleported the player — if the static lib is stale these stay at
+// the pre-tap position instead of jumping to origin / Lantern Hold).
+void game_get_player_pos(float* out_x, float* out_y, float* out_z);
+
+// Current zone id (0=forest, 1=desert, 2=isles). Swift queries after
+// game_set_zone to drive per-zone UI like the MTKView clear color.
+uint32_t game_get_zone(void);

@@ -1625,26 +1625,53 @@ class GameViewController: UIViewController, MTKViewDelegate {
     }
 
     // Switch active zone in Zig + flash a brief travel banner.
-    // The Whispering Forest's mesh roster is rendered in every zone today
-    // (the per-zone scenery roster lands later); switching zones changes the
-    // outer-ring boundary clamp + isles water-walk logic immediately.
+    // After game_set_zone the player teleports to the zone's start spot; we
+    // read it back via game_get_player_pos so the banner shows the live coords
+    // (smoking-gun diagnostic that the Zig side actually rebuilt the world).
+    // We also recolour the MTKView clear so the screen tint changes per zone
+    // even before the camera has lerped to the new player position.
     private func travelToZone(zoneId: Int, name: String, dismiss: @escaping () -> Void) {
         game_set_zone(UInt32(zoneId))
-        showTravelBanner("Travelling to \(name)")
+
+        // Read back actual player pos + reported zone so we can prove on screen
+        // whether the new Zig code is in the build.
+        var px: Float = 0, py: Float = 0, pz: Float = 0
+        game_get_player_pos(&px, &py, &pz)
+        let liveZone = game_get_zone()
+        applyZoneClearColor(zoneId: Int(liveZone))
+
+        showTravelBanner(
+            "Travelling to \(name)\n" +
+            String(format: "zone=%u  player=(%.0f, %.0f, %.0f)", liveZone, px, py, pz)
+        )
         dismiss()
+    }
+
+    // Recolour the MTKView clear so the screen visibly changes between zones
+    // even if no entities re-render (forest dark blue, desert warm brown,
+    // isles deep teal). Called from travelToZone — the change is independent
+    // of the Zig binary, so a colour swap proves Swift wired the tap up.
+    private func applyZoneClearColor(zoneId: Int) {
+        let c: MTLClearColor = switch zoneId {
+        case 1: MTLClearColor(red: 0.18, green: 0.10, blue: 0.04, alpha: 1) // desert
+        case 2: MTLClearColor(red: 0.02, green: 0.08, blue: 0.14, alpha: 1) // isles
+        default: MTLClearColor(red: 0.03, green: 0.03, blue: 0.05, alpha: 1) // forest
+        }
+        mtkView.clearColor = c
     }
 
     private func showTravelBanner(_ text: String) {
         let banner = UILabel()
         banner.text = text
-        banner.font = .systemFont(ofSize: 18, weight: .heavy)
+        banner.font = .systemFont(ofSize: 16, weight: .heavy)
         banner.textColor = .white
         banner.textAlignment = .center
+        banner.numberOfLines = 0           // allow the diagnostic line to wrap
         banner.backgroundColor = UIColor(red: 0.10, green: 0.10, blue: 0.16, alpha: 0.92)
         banner.layer.cornerRadius = 10
         banner.layer.masksToBounds = true
         banner.alpha = 0
-        let w: CGFloat = 280, h: CGFloat = 44
+        let w: CGFloat = 320, h: CGFloat = 70
         banner.frame = CGRect(x: (view.bounds.width - w) / 2,
                                y: view.safeAreaInsets.top + 80,
                                width: w, height: h)
