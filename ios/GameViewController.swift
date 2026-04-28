@@ -249,13 +249,32 @@ private final class MapPanelView: UIView {
                              .foregroundColor: UIColor(white: 0.75, alpha: 1)]))
             btn.titleLabel?.numberOfLines = 0
             btn.setAttributedTitle(title, for: .normal)
-            btn.addAction(UIAction { [weak self] _ in self?.onTravel?(z.id, z.name) },
-                          for: .touchUpInside)
+            // addTarget+selector instead of UIAction — fewer Swift-version
+            // surprises if the build's Swift mode is off, and trivially easy
+            // to verify with a debugger.
+            btn.addTarget(self, action: #selector(zoneRowTapped(_:)), for: .touchUpInside)
             addSubview(btn)
             rows.append(btn)
         }
     }
     required init?(coder: NSCoder) { fatalError() }
+
+    @objc private func zoneRowTapped(_ sender: UIButton) {
+        let zoneId = sender.tag
+        guard zoneId >= 0 && zoneId < zones.count else { return }
+        let z = zones[zoneId]
+        NSLog("[zone] MapPanelView row tapped id=\(z.id) name=\(z.name)")
+        // Flash the row green for 0.25s — unmistakable visual confirmation
+        // that the tap reached the closure, independent of game_set_zone or
+        // the MTKView clear colour.
+        let oldBg = sender.backgroundColor
+        sender.backgroundColor = UIColor(red: 0.18, green: 0.78, blue: 0.32, alpha: 1)
+        UIView.animate(withDuration: 0.25, delay: 0, options: .curveEaseOut) {
+            sender.backgroundColor = oldBg
+        } completion: { [weak self] _ in
+            self?.onTravel?(z.id, z.name)
+        }
+    }
 
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -1057,6 +1076,12 @@ class GameViewController: UIViewController, MTKViewDelegate {
     private var menuOverlay:   GameMenuOverlay!
     private var menuUIVisible: Bool = false
 
+    // Persistent debug HUD pinned top-left. Updates every frame with
+    // current_zone + player pos so it's instantly obvious whether the build
+    // has the new zone-switch code (a build without game_get_zone won't
+    // change the value when a zone is tapped). Remove once travel is verified.
+    private var debugHUD: UILabel!
+
     // GBuffer textures (recreated on resize)
     var albedoTex:   MTLTexture?
     var normalTex:   MTLTexture?
@@ -1180,6 +1205,9 @@ class GameViewController: UIViewController, MTKViewDelegate {
 
         // Portal map view (also fullscreen)
         portalMapView.frame = view.bounds
+
+        // Debug HUD — top-left under the safe area
+        debugHUD.frame = CGRect(x: 12, y: topSafe + 12, width: 240, height: 60)
     }
 
     // ── MTKViewDelegate ──────────────────────────────────────────────────────
@@ -1218,6 +1246,20 @@ class GameViewController: UIViewController, MTKViewDelegate {
         xpBar.update(frac: xpFrac)
         let playerLevel = UInt8(min(255, game_get_player_level()))
         levelLabel.text = "Lv. \(playerLevel)"
+
+        // Debug HUD — live zone + player pos. If you tap a new zone in the
+        // Map tab and the values here don't change, the build is stale.
+        var dbgX: Float = 0, dbgY: Float = 0, dbgZ: Float = 0
+        game_get_player_pos(&dbgX, &dbgY, &dbgZ)
+        let dbgZone = game_get_zone()
+        let zoneName: String
+        switch dbgZone {
+        case 1:  zoneName = "DESERT"
+        case 2:  zoneName = "ISLES"
+        default: zoneName = "FOREST"
+        }
+        debugHUD.text = String(format: "[zone] %@ id=%u\nplayer=(%.0f, %.0f, %.0f)",
+                               zoneName, dbgZone, dbgX, dbgY, dbgZ)
 
         // 2. Get uniforms from Zig
         uniformBuf.contents().bindMemory(to: UInt8.self, capacity: kUniformStride)
@@ -1557,6 +1599,18 @@ class GameViewController: UIViewController, MTKViewDelegate {
         portalMapView.onCancel = { [weak self] in self?.dismissPortalUI() }
         view.addSubview(portalMapView)
 
+        // ── Persistent debug HUD (top-left) — updates every frame in draw()
+        debugHUD = UILabel()
+        debugHUD.font      = .monospacedSystemFont(ofSize: 11, weight: .bold)
+        debugHUD.textColor = UIColor(red: 0.95, green: 0.95, blue: 0.40, alpha: 1)
+        debugHUD.numberOfLines = 0
+        debugHUD.layer.shadowColor   = UIColor.black.cgColor
+        debugHUD.layer.shadowOpacity = 1.0
+        debugHUD.layer.shadowRadius  = 2
+        debugHUD.layer.shadowOffset  = .zero
+        debugHUD.text = "[zone] booting…"
+        view.addSubview(debugHUD)
+
         // ── Top-right menu button + full-screen Inventory/Skills overlay
         menuButton = UIButton(type: .custom)
         menuButton.setTitle("☰", for: .normal)
@@ -1631,6 +1685,7 @@ class GameViewController: UIViewController, MTKViewDelegate {
     // We also recolour the MTKView clear so the screen tint changes per zone
     // even before the camera has lerped to the new player position.
     private func travelToZone(zoneId: Int, name: String, dismiss: @escaping () -> Void) {
+        NSLog("[zone] travelToZone tapped zoneId=\(zoneId) name=\(name)")
         game_set_zone(UInt32(zoneId))
 
         // Read back actual player pos + reported zone so we can prove on screen
@@ -1638,6 +1693,7 @@ class GameViewController: UIViewController, MTKViewDelegate {
         var px: Float = 0, py: Float = 0, pz: Float = 0
         game_get_player_pos(&px, &py, &pz)
         let liveZone = game_get_zone()
+        NSLog("[zone] after game_set_zone liveZone=\(liveZone) player=(\(px),\(py),\(pz))")
         applyZoneClearColor(zoneId: Int(liveZone))
 
         showTravelBanner(
@@ -1652,12 +1708,14 @@ class GameViewController: UIViewController, MTKViewDelegate {
     // isles deep teal). Called from travelToZone — the change is independent
     // of the Zig binary, so a colour swap proves Swift wired the tap up.
     private func applyZoneClearColor(zoneId: Int) {
-        let c: MTLClearColor = switch zoneId {
-        case 1: MTLClearColor(red: 0.18, green: 0.10, blue: 0.04, alpha: 1) // desert
-        case 2: MTLClearColor(red: 0.02, green: 0.08, blue: 0.14, alpha: 1) // isles
-        default: MTLClearColor(red: 0.03, green: 0.03, blue: 0.05, alpha: 1) // forest
+        let c: MTLClearColor
+        switch zoneId {
+        case 1: c = MTLClearColor(red: 0.18, green: 0.10, blue: 0.04, alpha: 1) // desert
+        case 2: c = MTLClearColor(red: 0.02, green: 0.08, blue: 0.14, alpha: 1) // isles
+        default: c = MTLClearColor(red: 0.03, green: 0.03, blue: 0.05, alpha: 1) // forest
         }
         mtkView.clearColor = c
+        NSLog("[zone] applyZoneClearColor zoneId=\(zoneId)")
     }
 
     private func showTravelBanner(_ text: String) {
