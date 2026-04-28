@@ -20,6 +20,9 @@ pub const BASE_MANA_REGEN: f32 = 5.0; // MP/sec
 pub const BASE_LIGHTNING_DMG:    f32 = 30;
 pub const BASE_FIREBALL_DMG:     f32 = 22;   // per-enemy hit; AoE compensates
 pub const BASE_FIREBALL_RADIUS:  f32 = 4.0;  // metres
+pub const BASE_ICE_NOVA_DMG:     f32 = 18;   // per-enemy hit, radiates from player
+pub const BASE_ICE_NOVA_RADIUS:  f32 = 7.5;  // metres
+pub const BASE_DASH_DISTANCE:    f32 = 9.0;  // metres along facing
 pub const BASE_MANA_COSTS = [4]f32{ 30, 15, 35, 10 };  // fireball, lightning, ice_nova, dash
 pub const BASE_COOLDOWNS  = [4]f32{ 1.2, 0.0, 5.0, 2.0 };
 
@@ -209,7 +212,7 @@ pub const Player = struct {
                 var best_enemy: u16 = std.math.maxInt(u16);
                 for (0..MAX_E) |i| {
                     const eid: u16 = @intCast(i);
-                    if (!world.alive[eid] or world.team[eid] != 1) continue;
+                    if (!world.alive[eid] or world.team[eid] != 1 or world.death_t[eid] > 0) continue;
                     const dx = world.pos[eid].x - ppos.x;
                     const dz = world.pos[eid].z - ppos.z;
                     const dsq = dx * dx + dz * dz;
@@ -298,10 +301,12 @@ pub const Player = struct {
                 if (world.hp[best_enemy] <= 0 and world.death_t[best_enemy] == 0) {
                     const cfg = @import("enemy_config.zig").get_by_mesh(world.mesh_id[best_enemy]);
                     self.on_kill(if (cfg) |c| c.xp_reward else 10);
-                    // Mark as dying corpse — main.zig animates the fall, AI skips them.
-                    // team=99 takes the entity out of "team==1 enemy" iteration filters.
+                    // Mark as dying corpse — main.zig animates the fall, AI/targeting
+                    // loops skip entities where death_t > 0. Team is preserved so
+                    // the renderer can keep drawing them in the right palette
+                    // (with a darken-on-death ramp) instead of falling into the
+                    // gray fallback colour.
                     world.death_t[best_enemy] = 0.001;
-                    world.team[best_enemy]    = 99;
                     world.vel[best_enemy].y   = 6.0;     // pop upward then fall
                     // Stronger camera kick for kills.
                     renderer_mod.pending_kick = @max(renderer_mod.pending_kick, 0.45);
@@ -351,7 +356,7 @@ pub const Player = struct {
                 var any_kill = false;
                 for (0..MAX_E) |i| {
                     const eid: u16 = @intCast(i);
-                    if (!world.alive[eid] or world.team[eid] != 1) continue;
+                    if (!world.alive[eid] or world.team[eid] != 1 or world.death_t[eid] > 0) continue;
                     const ex = world.pos[eid].x - target.x;
                     const ez = world.pos[eid].z - target.z;
                     const dsq = ex * ex + ez * ez;
@@ -382,7 +387,6 @@ pub const Player = struct {
                         const cfg = @import("enemy_config.zig").get_by_mesh(world.mesh_id[eid]);
                         self.on_kill(if (cfg) |c| c.xp_reward else 10);
                         world.death_t[eid] = 0.001;
-                        world.team[eid]    = 99;
                         world.vel[eid].y   = 6.0;
                         any_kill   = true;
                         killed_pos = world.pos[eid];
@@ -405,12 +409,109 @@ pub const Player = struct {
                     self.mana += mana_cost * 0.5;
                 }
             },
-            else => {
-                // ice_nova and dash not yet implemented — refund mana + cd so
-                // the player isn't penalised for misclicking on an unwired skill.
-                self.mana += mana_cost;
-                self.skill_cd[idx] = 0;
-                return false;
+            .ice_nova => {
+                // Radial AoE centred on the player — slows + damages every
+                // enemy within (level-scaled) radius. No travel time; the cast
+                // resolves the same frame.
+                const MAX_E = @import("entity.zig").MAX_ENTITIES;
+                const ppos = world.pos[self.entity];
+                const radius = BASE_ICE_NOVA_RADIUS * self.spell_aoe_mult(idx);
+                const radius_sq = radius * radius;
+                const spell_mult = self.spell_dmg_mult(idx);
+                const base_dmg = (BASE_ICE_NOVA_DMG * spell_mult + self.bonuses.damage_flat) *
+                    (1.0 + self.bonuses.damage_pct + self.bonuses.spell_damage_pct);
+
+                // Visual ring at the player position — reuses mesh 28 (impact ring).
+                const ring = world.spawn();
+                world.pos[ring]      = Vec3{ .x = ppos.x, .y = 0.05, .z = ppos.z };
+                world.mesh_id[ring]  = 28;
+                world.scale[ring]    = radius * 0.5;
+                world.team[ring]     = 10;
+                world.hp[ring]       = 0.6;
+                world.hp_max[ring]   = 0.6;
+                world.fx_flags[ring] = 0;
+                world.rot_y[ring]    = 0;
+                world.radius[ring]   = 0.1;
+
+                @import("../renderer/particles.zig").pending_burst = .{
+                    .kind = .lightning, // closest existing preset; cool-toned burst
+                    .pos  = Vec3{ .x = ppos.x, .y = 0.5, .z = ppos.z },
+                };
+
+                var any_hit = false;
+                var total_dmg_dealt: f32 = 0;
+                var killed_pos: Vec3 = Vec3.zero;
+                var any_kill = false;
+                for (0..MAX_E) |i| {
+                    const eid: u16 = @intCast(i);
+                    if (!world.alive[eid] or world.team[eid] != 1 or world.death_t[eid] > 0) continue;
+                    const ex = world.pos[eid].x - ppos.x;
+                    const ez = world.pos[eid].z - ppos.z;
+                    const dsq = ex * ex + ez * ez;
+                    if (dsq > radius_sq) continue;
+
+                    var dmg = base_dmg;
+                    var was_crit = false;
+                    if (crit_roll_unit() < self.bonuses.crit_chance_pct) {
+                        dmg *= 1.5 + self.bonuses.crit_damage_pct;
+                        was_crit = true;
+                    }
+                    world.hp[eid] -= dmg;
+                    total_dmg_dealt += dmg;
+                    any_hit = true;
+
+                    world.hit_flash[eid] = if (was_crit) 0.28 else 0.18;
+                    // Visual freeze tint — main.zig decays freeze_t each frame
+                    // and clears the FROZEN bit when the timer hits zero.
+                    world.fx_flags[eid] |= @import("entity.zig").FX.FROZEN;
+                    world.freeze_t[eid] = 2.5;
+
+                    if (world.hp[eid] <= 0 and world.death_t[eid] == 0) {
+                        const cfg = @import("enemy_config.zig").get_by_mesh(world.mesh_id[eid]);
+                        self.on_kill(if (cfg) |c| c.xp_reward else 10);
+                        world.death_t[eid] = 0.001;
+                        world.vel[eid].y   = 6.0;
+                        any_kill   = true;
+                        killed_pos = world.pos[eid];
+                    }
+                }
+                if (any_hit) {
+                    self.add_spell_xp(skill, total_dmg_dealt);
+                    const kick_t: f32 = if (any_kill) 0.40 else 0.22;
+                    renderer_mod.pending_kick = @max(renderer_mod.pending_kick, kick_t);
+                    if (any_kill) {
+                        @import("../renderer/particles.zig").pending_burst = .{
+                            .kind = .death_burst,
+                            .pos  = killed_pos,
+                        };
+                    }
+                } else {
+                    // Whiffed — no enemies in range; refund half mana.
+                    self.mana += mana_cost * 0.5;
+                }
+            },
+            .dash => {
+                // Short teleport-style burst along the player's facing. No
+                // damage, no targeting — the value is repositioning out of a
+                // pack or chasing a fleeing wisp.
+                const ppos = world.pos[self.entity];
+                const ry   = world.rot_y[self.entity];
+                const dist = BASE_DASH_DISTANCE * self.spell_aoe_mult(idx);
+                // rot_y matches the atan2(dx, dz) convention from update():
+                // forward = (sin(ry), 0, cos(ry)) in world space.
+                const fx = std.math.sin(ry);
+                const fz = std.math.cos(ry);
+                world.pos[self.entity] = Vec3{
+                    .x = ppos.x + fx * dist,
+                    .y = ppos.y,
+                    .z = ppos.z + fz * dist,
+                };
+                // Light camera kick + cool-coloured burst at the launch point.
+                renderer_mod.pending_kick = @max(renderer_mod.pending_kick, 0.18);
+                @import("../renderer/particles.zig").pending_burst = .{
+                    .kind = .lightning,
+                    .pos  = Vec3{ .x = ppos.x, .y = 0.4, .z = ppos.z },
+                };
             },
         }
 

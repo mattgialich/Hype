@@ -46,3 +46,12 @@ uint32_t game_player_at_portal(void);
 // Push parsed skill-tree bonuses to Zig. buf must point to a 64-byte
 // SkillBonuses struct: 16 × float in declaration order from skill_bonuses.zig.
 void game_set_skill_bonuses(const uint8_t* buf);
+
+// Switch active gameplay zone. zone_id: 0=forest, 1=desert, 2=isles.
+// Updates the boundary clamp and any zone-aware logic in game_update.
+void game_set_zone(uint32_t zone_id);
+
+// Per-spell progression for the HUD. Fills buf with 4 × 12-byte SpellState
+// entries (level, xp, xp_to_next) — order matches the 4 hotbar slots:
+// 0=fireball, 1=lightning, 2=ice_nova, 3=dash.
+void game_get_spell_state(uint8_t* buf);

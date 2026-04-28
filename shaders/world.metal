@@ -107,8 +107,10 @@ vertex VertOut vert_world(
         float walk = sin(frame.walk_phase);
         if (part == 2) { float d = max(1.68 - pos.y, 0.0) / 0.78; pos.z -= walk * 0.28 * d; }
         if (part == 3) { float d = max(1.68 - pos.y, 0.0) / 0.78; pos.z += walk * 0.28 * d; }
-        // Staff (parts 4+): full rotation about shoulder — no clamp so top swings opposite bottom
-        if (part >= 4) { float d = (1.68 - pos.y) / 0.78; pos.z -= walk * 0.28 * d; }
+        // Staff (parts 4+): swings with the right arm. Clamp the envelope at
+        // the shoulder so the staff TOP doesn't scissor in the opposite
+        // direction of the base — keeps it visibly held in one piece.
+        if (part >= 4) { float d = max(1.68 - pos.y, 0.0) / 0.78; pos.z -= walk * 0.20 * d; }
     }
     // Gargoyle wing flap (mesh_id==3): uv.x>=30, uv.y=extension t (0=root, 1=tip)
     if (draw.mesh_id == 3 && in.uv.x >= 30.0) {

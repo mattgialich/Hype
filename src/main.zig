@@ -571,6 +571,15 @@ export fn game_update(dt: f32) void {
         if (world.hit_flash[id] > 0) {
             world.hit_flash[id] = @max(0, world.hit_flash[id] - dt);
         }
+        // Freeze-tint decay — clear the FROZEN bit when the timer expires so
+        // ice-nova-tagged enemies don't keep their blue tint forever.
+        if (world.freeze_t[id] > 0) {
+            world.freeze_t[id] -= dt;
+            if (world.freeze_t[id] <= 0) {
+                world.freeze_t[id] = 0;
+                world.fx_flags[id] &= ~@as(u32, FX.FROZEN);
+            }
+        }
         // Lightning bolts: hp repurposed as lifetime — despawn when expired
         if (world.mesh_id[id] == 7) {
             world.hp[id] -= dt;
@@ -647,7 +656,26 @@ export fn game_touch_skill(skill_idx: u8, world_x: f32, world_z: f32) void {
     const skills = [4]@import("game/player.zig").Skill{
         .fireball, .lightning_strike, .ice_nova, .dash,
     };
-    const target = Vec3{ .x = world_x, .y = 0, .z = world_z };
+    var target = Vec3{ .x = world_x, .y = 0, .z = world_z };
+    // Hotbar buttons pass (0, 0). Auto-aim fireball at the nearest enemy in
+    // range so the on-screen button is useful without a separate ground tap;
+    // fall back to a point ~12m forward of the player if nothing is in range.
+    if (skill_idx == 0 and world_x == 0 and world_z == 0) {
+        const ppos = world.pos[player.entity];
+        const MAX_E = @import("game/entity.zig").MAX_ENTITIES;
+        var best_dsq: f32 = 30.0 * 30.0;
+        var best_x: f32 = ppos.x - std.math.sin(world.rot_y[player.entity]) * 12.0;
+        var best_z: f32 = ppos.z - std.math.cos(world.rot_y[player.entity]) * 12.0;
+        for (0..MAX_E) |i| {
+            const eid: u16 = @intCast(i);
+            if (!world.alive[eid] or world.team[eid] != 1 or world.death_t[eid] > 0) continue;
+            const dx = world.pos[eid].x - ppos.x;
+            const dz = world.pos[eid].z - ppos.z;
+            const dsq = dx * dx + dz * dz;
+            if (dsq < best_dsq) { best_dsq = dsq; best_x = world.pos[eid].x; best_z = world.pos[eid].z; }
+        }
+        target = Vec3{ .x = best_x, .y = 0, .z = best_z };
+    }
     _ = player.try_cast(&world, skills[skill_idx], target);
 }
 
@@ -727,9 +755,21 @@ export fn game_fill_draws(buf: [*]u8, max_bytes: u32) u32 {
             else => .{ 0.5, 0.5, 0.5, 1.0 },
         };
 
+        // Death darken — corpses fade from full colour to ~30% brightness over
+        // their first second of falling, so the kill reads visually without
+        // making the body abruptly switch to the gray fallback colour.
+        var final_color = color;
+        if (world.death_t[id] > 0) {
+            const t = @min(1.0, world.death_t[id]);
+            const fade = 1.0 - 0.70 * t;
+            final_color[0] *= fade;
+            final_color[1] *= fade;
+            final_color[2] *= fade;
+        }
+
         renderer.push_draw(.{
             .model_matrix = model.m,
-            .color        = color,
+            .color        = final_color,
             // Pack hit-flash intensity (0..1, decaying from 0.18s lifetime) into
             // bits 8-15 of fx_flags so the fragment shader can tint enemies red
             // for a single frame on hit. Bits 0-7 stay for the FX bitmask;
@@ -828,7 +868,7 @@ export fn game_get_enemy_labels(buf: [*]u8, out_count: *u32) void {
     var count: u32 = 0;
     for (0..@import("game/entity.zig").MAX_ENTITIES) |i| {
         const id: u16 = @intCast(i);
-        if (!world.alive[id] or world.team[id] != 1) continue;
+        if (!world.alive[id] or world.team[id] != 1 or world.death_t[id] > 0) continue;
         const cfg = enemy_config.get_by_mesh(world.mesh_id[id]) orelse continue;
         labels[count] = .{
             .world_x  = world.pos[id].x,

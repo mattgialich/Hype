@@ -1,12 +1,13 @@
 // PortalMapView.swift
 // Destination selection UI shown when the player walks up to the zone portal.
-// Owned by GameViewController; emits onForest / onComingSoon callbacks.
+// Owned by GameViewController; emits onZoneSelected(zoneId, name) when a pin is
+// tapped (zoneId 0=forest, 1=desert, 2=isles), or onCancel when dismissed.
 
 import UIKit
 
 final class PortalMapView: UIView {
-    var onForest:  (() -> Void)?
-    var onComingSoon: ((String) -> Void)?
+    var onZoneSelected: ((Int, String) -> Void)?
+    var onCancel:       (() -> Void)?
 
     private let panel    = UIView()
     private let titleLbl = UILabel()
@@ -31,6 +32,7 @@ final class PortalMapView: UIView {
 
     fileprivate final class MapPin: UIControl {
         let nameText: String
+        let zoneId: Int
         let isAvailable: Bool
         private let glowLayer = CAGradientLayer()
         private let pinLayer  = CAShapeLayer()
@@ -43,8 +45,9 @@ final class PortalMapView: UIView {
         static let pinSize: CGFloat = 22
         static let haloSize: CGFloat = 56
 
-        init(name: String, available: Bool) {
+        init(name: String, zoneId: Int, available: Bool = true) {
             self.nameText    = name
+            self.zoneId      = zoneId
             self.isAvailable = available
             super.init(frame: .zero)
 
@@ -124,9 +127,9 @@ final class PortalMapView: UIView {
     }
 
     override init(frame: CGRect) {
-        forestPin = MapPin(name: "Whispering Forest", available: true)
-        desertPin = MapPin(name: "Sunburnt Wastes",   available: false)
-        islandPin = MapPin(name: "Drifting Isles",    available: false)
+        forestPin = MapPin(name: "Whispering Forest", zoneId: 0)
+        desertPin = MapPin(name: "Sunburnt Wastes",   zoneId: 1)
+        islandPin = MapPin(name: "Drifting Isles",    zoneId: 2)
         super.init(frame: frame)
 
         backgroundColor = UIColor(white: 0, alpha: 0.78)
@@ -223,12 +226,11 @@ final class PortalMapView: UIView {
     required init?(coder: NSCoder) { fatalError() }
 
     @objc private func pinTapped(_ sender: MapPin) {
-        statusLbl.text = sender.nameText + (sender.isAvailable ? " — Available" : " — Coming Soon")
-        if sender === forestPin { onForest?() }
-        else                    { onComingSoon?(sender.nameText) }
+        statusLbl.text = "Travelling to " + sender.nameText
+        onZoneSelected?(sender.zoneId, sender.nameText)
     }
 
-    @objc private func tapClose() { onForest?() }   // dismiss = same as continue in current zone
+    @objc private func tapClose() { onCancel?() }
 
     // Build the compass rose path + position N/E/S/W labels into the
     // top-right corner of the map at (cx, cy) with the given radius.

@@ -135,7 +135,7 @@ pub const EnemyAI = struct {
         // Per-entity behavior tick (dispatch by mesh_id)
         for (0..MAX_E) |i| {
             const id: u16 = @intCast(i);
-            if (!world.alive[id] or world.team[id] != 1) continue;
+            if (!world.alive[id] or world.team[id] != 1 or world.death_t[id] > 0) continue;
             switch (world.mesh_id[id]) {
                 3  => tick_gargoyle(self, world, id, player_id, pp, dt, t),
                 25 => tick_wisp    (self, world, id, player_id, pp, dt, t),
@@ -149,10 +149,10 @@ pub const EnemyAI = struct {
         // O(n²) over enemies only — with few enemies this is cheap.
         for (0..MAX_E) |i| {
             const a: u16 = @intCast(i);
-            if (!world.alive[a] or world.team[a] != 1) continue;
+            if (!world.alive[a] or world.team[a] != 1 or world.death_t[a] > 0) continue;
             for (i + 1..MAX_E) |j| {
                 const b: u16 = @intCast(j);
-                if (!world.alive[b] or world.team[b] != 1) continue;
+                if (!world.alive[b] or world.team[b] != 1 or world.death_t[b] > 0) continue;
                 const dx  = world.pos[a].x - world.pos[b].x;
                 const dz  = world.pos[a].z - world.pos[b].z;
                 const dsq = dx * dx + dz * dz;

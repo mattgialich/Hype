@@ -198,6 +198,84 @@ let kEmitterStride  = 104   // sizeof(GpuEmitter) in Zig
 let kUniformStride  = 160   // sizeof(FrameUniforms) in Zig
 
 
+// ── Map tab — list of zones the player can travel to from anywhere.
+// Triggers onTravel(zoneId, name) which the menu owner wires to game_set_zone
+// + dismiss. Mirrors PortalMapView's zone roster but presented as a tappable
+// list so the player isn't forced to walk to the gate to switch realms.
+private final class MapPanelView: UIView {
+    var onTravel: ((Int, String) -> Void)?
+
+    private struct Zone { let id: Int; let name: String; let blurb: String; let tint: UIColor }
+    private let zones: [Zone] = [
+        .init(id: 0, name: "Whispering Forest",
+              blurb: "Mossy paths, ancient monoliths, and gargoyles.",
+              tint: UIColor(red: 0.20, green: 0.55, blue: 0.30, alpha: 1)),
+        .init(id: 1, name: "Sunburnt Wastes",
+              blurb: "Cracked dunes ringed by bone obelisks.",
+              tint: UIColor(red: 0.78, green: 0.55, blue: 0.20, alpha: 1)),
+        .init(id: 2, name: "Drifting Isles",
+              blurb: "Six islands chained by bridges over open sea.",
+              tint: UIColor(red: 0.30, green: 0.55, blue: 0.85, alpha: 1)),
+    ]
+    private var rows: [UIButton] = []
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        let hdr = UILabel()
+        hdr.text = "Choose a Realm"
+        hdr.font = .systemFont(ofSize: 18, weight: .heavy)
+        hdr.textColor = .white
+        hdr.textAlignment = .center
+        hdr.tag = 8888
+        addSubview(hdr)
+
+        for z in zones {
+            let btn = UIButton(type: .custom)
+            btn.tag = z.id
+            btn.contentHorizontalAlignment = .left
+            btn.contentEdgeInsets = UIEdgeInsets(top: 12, left: 18, bottom: 12, right: 18)
+            btn.backgroundColor = UIColor(white: 0.08, alpha: 1)
+            btn.layer.cornerRadius = 12
+            btn.layer.borderWidth  = 2
+            btn.layer.borderColor  = z.tint.withAlphaComponent(0.55).cgColor
+
+            let title = NSMutableAttributedString(
+                string: z.name + "\n",
+                attributes: [.font: UIFont.systemFont(ofSize: 18, weight: .heavy),
+                             .foregroundColor: UIColor.white])
+            title.append(NSAttributedString(
+                string: z.blurb,
+                attributes: [.font: UIFont.systemFont(ofSize: 13, weight: .regular),
+                             .foregroundColor: UIColor(white: 0.75, alpha: 1)]))
+            btn.titleLabel?.numberOfLines = 0
+            btn.setAttributedTitle(title, for: .normal)
+            btn.addAction(UIAction { [weak self] _ in self?.onTravel?(z.id, z.name) },
+                          for: .touchUpInside)
+            addSubview(btn)
+            rows.append(btn)
+        }
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let pad: CGFloat = 18
+        let hdrH: CGFloat = 26
+        if let hdr = viewWithTag(8888) {
+            hdr.frame = CGRect(x: 0, y: pad, width: bounds.width, height: hdrH)
+        }
+        let rowH: CGFloat = 78
+        let gap:  CGFloat = 12
+        let topY = pad + hdrH + 14
+        for (i, btn) in rows.enumerated() {
+            btn.frame = CGRect(x: pad,
+                                y: topY + CGFloat(i) * (rowH + gap),
+                                width: bounds.width - pad * 2,
+                                height: rowH)
+        }
+    }
+}
+
 // ── Inventory grid (placeholder slots for now) ──────────────────────────────
 private final class InventoryView: UIView {
     private let cols = 5
@@ -711,17 +789,19 @@ private final class SkillTreeView: UIView, UIScrollViewDelegate {
 
 // ── Full-screen game menu — Inventory / Skills tabs ────────────────────────
 private final class GameMenuOverlay: UIView {
-    enum Tab { case inventory, skills }
+    enum Tab { case inventory, skills, map }
     var onClose: (() -> Void)?
 
     private let panel       = UIView()
     private let titleLbl    = UILabel()
     private let invTab      = UIButton(type: .system)
     private let skillTab    = UIButton(type: .system)
+    private let mapTab      = UIButton(type: .system)
     private let underline   = UIView()
     private let contentArea = UIView()
     private let inventory   = InventoryView()
     let skillTree           = SkillTreeView()
+    let mapPanel            = MapPanelView()
     private let closeBtn    = UIButton(type: .system)
 
     private var current: Tab = .skills
@@ -743,7 +823,8 @@ private final class GameMenuOverlay: UIView {
         panel.addSubview(titleLbl)
 
         for (btn, title, tab) in [(invTab, "Inventory", Tab.inventory),
-                                   (skillTab, "Skills",    Tab.skills)] {
+                                   (skillTab, "Skills",    Tab.skills),
+                                   (mapTab,   "Map",       Tab.map)] {
             btn.setTitle(title, for: .normal)
             btn.titleLabel?.font = .systemFont(ofSize: 16, weight: .bold)
             btn.tintColor = .white
@@ -760,6 +841,7 @@ private final class GameMenuOverlay: UIView {
 
         contentArea.addSubview(inventory)
         contentArea.addSubview(skillTree)
+        contentArea.addSubview(mapPanel)
 
         closeBtn.setTitle("✕  Close", for: .normal)
         closeBtn.titleLabel?.font = .systemFont(ofSize: 15, weight: .semibold)
@@ -775,12 +857,18 @@ private final class GameMenuOverlay: UIView {
         current = tab
         inventory.isHidden = tab != .inventory
         skillTree.isHidden = tab != .skills
+        mapPanel.isHidden  = tab != .map
         UIView.animate(withDuration: 0.18) { self.layoutTabs() }
     }
 
     private func layoutTabs() {
         // Move the underline beneath the active tab
-        let target = current == .inventory ? invTab : skillTab
+        let target: UIButton
+        switch current {
+        case .inventory: target = invTab
+        case .skills:    target = skillTab
+        case .map:       target = mapTab
+        }
         underline.frame = CGRect(x: target.frame.minX + 8,
                                   y: target.frame.maxY - 2,
                                   width: target.frame.width - 16,
@@ -801,13 +889,15 @@ private final class GameMenuOverlay: UIView {
         titleLbl.frame = CGRect(x: 0, y: safeTop + 12, width: panelW, height: 30)
 
         // Tab buttons centered side-by-side
-        let tabW: CGFloat = 140
+        let tabW: CGFloat = 110
         let tabH: CGFloat = 40
+        let tabGap: CGFloat = 14
         let tabsY = titleLbl.frame.maxY + 10
-        let totalTabsW = tabW * 2 + 20
+        let totalTabsW = tabW * 3 + tabGap * 2
         let tabsX = (panelW - totalTabsW) / 2
-        invTab.frame   = CGRect(x: tabsX,                 y: tabsY, width: tabW, height: tabH)
-        skillTab.frame = CGRect(x: tabsX + tabW + 20,     y: tabsY, width: tabW, height: tabH)
+        invTab.frame   = CGRect(x: tabsX,                                y: tabsY, width: tabW, height: tabH)
+        skillTab.frame = CGRect(x: tabsX + tabW + tabGap,                y: tabsY, width: tabW, height: tabH)
+        mapTab.frame   = CGRect(x: tabsX + (tabW + tabGap) * 2,          y: tabsY, width: tabW, height: tabH)
         layoutTabs()
 
         // Close button — top-right, above the tab row so it's reachable.
@@ -822,6 +912,7 @@ private final class GameMenuOverlay: UIView {
 
         inventory.frame = contentArea.bounds
         skillTree.frame = contentArea.bounds
+        mapPanel.frame  = contentArea.bounds
     }
 }
 
@@ -932,8 +1023,22 @@ class GameViewController: UIViewController, MTKViewDelegate {
     var impactRingIBuf:    MTLBuffer!
     var impactRingIndexCount: Int = 0
 
-    // Skill button
-    var skillButton: UIButton!
+    // Skill hotbar — 4 buttons in fixed order:
+    // 0=fireball, 1=lightning_strike, 2=ice_nova, 3=dash. Index matches the
+    // Skill enum in src/game/player.zig and the skill_idx arg of game_touch_skill.
+    private var skillButtons: [UIButton] = []
+    private struct SkillSlot {
+        let idx: Int
+        let glyph: String
+        let label: String
+        let tint: UIColor   // border / glow tint per element
+    }
+    private let skillSlots: [SkillSlot] = [
+        .init(idx: 0, glyph: "🔥", label: "Fireball",  tint: UIColor(red: 1.00, green: 0.45, blue: 0.20, alpha: 1)),
+        .init(idx: 1, glyph: "⚡", label: "Lightning", tint: UIColor(red: 0.35, green: 0.80, blue: 1.00, alpha: 1)),
+        .init(idx: 2, glyph: "❄",  label: "Ice Nova", tint: UIColor(red: 0.55, green: 0.85, blue: 1.00, alpha: 1)),
+        .init(idx: 3, glyph: "💨", label: "Dash",     tint: UIColor(red: 0.85, green: 0.85, blue: 0.55, alpha: 1)),
+    ]
 
     // HUD stat bar + XP bar + enemy labels + level display
     private var statBar:      StatBarView!
@@ -1024,12 +1129,25 @@ class GameViewController: UIViewController, MTKViewDelegate {
         joystickCenter     = CGPoint(x: joyX + r, y: joyY + r)
         resetKnob()
 
-        // Skill button: absolute right corner, same vertical band as joystick
-        let btn: CGFloat = 64
-        skillButton.frame = CGRect(x: view.bounds.width - 10 - btn,
-                                   y: view.bounds.height - safe - 26 - btn,
-                                   width: btn, height: btn)
-        skillButton.layer.cornerRadius = btn / 2
+        // Skill hotbar: 4 buttons stacked in a 2×2 grid in the bottom-right
+        // corner, same vertical band as the joystick. Slot index → grid pos:
+        //   0 (fireball)  bottom-left,  1 (lightning) bottom-right,
+        //   2 (ice nova)  top-left,     3 (dash)      top-right.
+        let btn: CGFloat = 60
+        let gap: CGFloat = 8
+        let gridRight = view.bounds.width - 10
+        let gridBot   = view.bounds.height - safe - 26
+        let positions: [(x: CGFloat, y: CGFloat)] = [
+            (gridRight - btn * 2 - gap, gridBot - btn),                    // 0 fireball
+            (gridRight - btn,           gridBot - btn),                    // 1 lightning
+            (gridRight - btn * 2 - gap, gridBot - btn * 2 - gap),          // 2 ice nova
+            (gridRight - btn,           gridBot - btn * 2 - gap),          // 3 dash
+        ]
+        for (i, b) in skillButtons.enumerated() where i < positions.count {
+            let p = positions[i]
+            b.frame = CGRect(x: p.x, y: p.y, width: btn, height: btn)
+            b.layer.cornerRadius = btn / 2
+        }
 
         // Stat + XP bars — centred, 65% of screen width, pinned to bottom
         let barW  = view.bounds.width * 0.65
@@ -1388,29 +1506,26 @@ class GameViewController: UIViewController, MTKViewDelegate {
         touchesEnded(touches, with: event)
     }
 
-    // ── Skill button ─────────────────────────────────────────────────────────
+    // ── Skill hotbar ─────────────────────────────────────────────────────────
 
     private func setupSkillButton() {
-        skillButton = UIButton(type: .custom)
-
-        // Dark arcane background
-        skillButton.backgroundColor = UIColor(red: 0.04, green: 0.04, blue: 0.16, alpha: 0.92)
-
-        // Electric cyan border
-        skillButton.layer.borderWidth = 2.5
-        skillButton.layer.borderColor = UIColor(red: 0.35, green: 0.80, blue: 1.00, alpha: 0.90).cgColor
-
-        // Outer electric glow
-        skillButton.layer.shadowColor   = UIColor(red: 0.30, green: 0.70, blue: 1.00, alpha: 1).cgColor
-        skillButton.layer.shadowRadius  = 10
-        skillButton.layer.shadowOpacity = 0.75
-        skillButton.layer.shadowOffset  = .zero
-
-        skillButton.setTitle("⚡", for: .normal)
-        skillButton.titleLabel?.font = UIFont.systemFont(ofSize: 32, weight: .medium)
-
-        skillButton.addTarget(self, action: #selector(lightningSkillTapped), for: .touchUpInside)
-        view.addSubview(skillButton)
+        skillButtons.removeAll()
+        for slot in skillSlots {
+            let b = UIButton(type: .custom)
+            b.tag = slot.idx
+            b.backgroundColor = UIColor(red: 0.04, green: 0.04, blue: 0.16, alpha: 0.92)
+            b.layer.borderWidth = 2.5
+            b.layer.borderColor = slot.tint.withAlphaComponent(0.90).cgColor
+            b.layer.shadowColor   = slot.tint.cgColor
+            b.layer.shadowRadius  = 10
+            b.layer.shadowOpacity = 0.75
+            b.layer.shadowOffset  = .zero
+            b.setTitle(slot.glyph, for: .normal)
+            b.titleLabel?.font = UIFont.systemFont(ofSize: 28, weight: .medium)
+            b.addTarget(self, action: #selector(skillSlotTapped(_:)), for: .touchUpInside)
+            view.addSubview(b)
+            skillButtons.append(b)
+        }
     }
 
     private func setupStatBar() {
@@ -1436,8 +1551,10 @@ class GameViewController: UIViewController, MTKViewDelegate {
         portalMapView = PortalMapView(frame: view.bounds)
         portalMapView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         portalMapView.isHidden = true
-        portalMapView.onForest = { [weak self] in self?.dismissPortalUI() }
-        portalMapView.onComingSoon = { [weak self] zone in self?.showComingSoonAlert(zone: zone) }
+        portalMapView.onZoneSelected = { [weak self] zoneId, name in
+            self?.travelToZone(zoneId: zoneId, name: name, dismiss: { self?.dismissPortalUI() })
+        }
+        portalMapView.onCancel = { [weak self] in self?.dismissPortalUI() }
         view.addSubview(portalMapView)
 
         // ── Top-right menu button + full-screen Inventory/Skills overlay
@@ -1461,6 +1578,9 @@ class GameViewController: UIViewController, MTKViewDelegate {
         menuOverlay.onClose = { [weak self] in self?.dismissMenu() }
         menuOverlay.skillTree.onAllocated = { [weak self] in
             self?.menuOverlay.skillTree.computeBonuses().push()
+        }
+        menuOverlay.mapPanel.onTravel = { [weak self] zoneId, name in
+            self?.travelToZone(zoneId: zoneId, name: name, dismiss: { self?.dismissMenu() })
         }
         view.addSubview(menuOverlay)
     }
@@ -1504,31 +1624,60 @@ class GameViewController: UIViewController, MTKViewDelegate {
         }
     }
 
-    private func showComingSoonAlert(zone: String) {
-        let ac = UIAlertController(title: zone,
-                                    message: "This realm hasn't been forged yet.\n\nThe portal here only routes back to the Whispering Forest for now.",
-                                    preferredStyle: .alert)
-        ac.addAction(UIAlertAction(title: "OK", style: .default) { [weak self] _ in
-            self?.dismissPortalUI()
-        })
-        present(ac, animated: true)
+    // Switch active zone in Zig + flash a brief travel banner.
+    // The Whispering Forest's mesh roster is rendered in every zone today
+    // (the per-zone scenery roster lands later); switching zones changes the
+    // outer-ring boundary clamp + isles water-walk logic immediately.
+    private func travelToZone(zoneId: Int, name: String, dismiss: @escaping () -> Void) {
+        game_set_zone(UInt32(zoneId))
+        showTravelBanner("Travelling to \(name)")
+        dismiss()
     }
 
-    @objc private func lightningSkillTapped() {
-        game_touch_skill(1, 0.0, 0.0)
+    private func showTravelBanner(_ text: String) {
+        let banner = UILabel()
+        banner.text = text
+        banner.font = .systemFont(ofSize: 18, weight: .heavy)
+        banner.textColor = .white
+        banner.textAlignment = .center
+        banner.backgroundColor = UIColor(red: 0.10, green: 0.10, blue: 0.16, alpha: 0.92)
+        banner.layer.cornerRadius = 10
+        banner.layer.masksToBounds = true
+        banner.alpha = 0
+        let w: CGFloat = 280, h: CGFloat = 44
+        banner.frame = CGRect(x: (view.bounds.width - w) / 2,
+                               y: view.safeAreaInsets.top + 80,
+                               width: w, height: h)
+        view.addSubview(banner)
+        UIView.animate(withDuration: 0.25, animations: { banner.alpha = 1 }) { _ in
+            UIView.animate(withDuration: 0.45, delay: 1.2, options: [],
+                           animations: { banner.alpha = 0 },
+                           completion: { _ in banner.removeFromSuperview() })
+        }
+    }
 
-        // Flash bright then settle back — feels like a discharge
+    @objc private func skillSlotTapped(_ sender: UIButton) {
+        let idx = sender.tag
+        guard idx >= 0 && idx < skillSlots.count else { return }
+        // Pass (0, 0) — Zig autoaims fireball at the nearest enemy when target
+        // is the origin; lightning self-targets internally; dash uses player
+        // facing; ice_nova radiates from the player. None of the four hotbar
+        // skills require a tapped world-space target today.
+        game_touch_skill(UInt8(idx), 0.0, 0.0)
+
+        // Press feedback — flash bright in the slot's tint, then settle back.
+        let tint = skillSlots[idx].tint
         UIView.animate(withDuration: 0.06) {
-            self.skillButton.transform       = CGAffineTransform(scaleX: 0.88, y: 0.88)
-            self.skillButton.backgroundColor = UIColor(red: 0.55, green: 0.88, blue: 1.00, alpha: 1.00)
-            self.skillButton.layer.shadowOpacity = 1.0
-            self.skillButton.layer.shadowRadius  = 22
+            sender.transform = CGAffineTransform(scaleX: 0.88, y: 0.88)
+            sender.backgroundColor = tint.withAlphaComponent(0.85)
+            sender.layer.shadowOpacity = 1.0
+            sender.layer.shadowRadius  = 22
         } completion: { _ in
             UIView.animate(withDuration: 0.30, delay: 0, options: .curveEaseOut) {
-                self.skillButton.transform       = .identity
-                self.skillButton.backgroundColor = UIColor(red: 0.04, green: 0.04, blue: 0.16, alpha: 0.92)
-                self.skillButton.layer.shadowOpacity = 0.75
-                self.skillButton.layer.shadowRadius  = 10
+                sender.transform = .identity
+                sender.backgroundColor = UIColor(red: 0.04, green: 0.04, blue: 0.16, alpha: 0.92)
+                sender.layer.shadowOpacity = 0.75
+                sender.layer.shadowRadius  = 10
             }
         }
     }

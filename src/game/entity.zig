@@ -39,6 +39,9 @@ pub const World = struct {
     // Brief flash on hit — > 0 = seconds remaining of red flash. Fades down
     // toward 0 each frame.
     hit_flash:[MAX_ENTITIES]f32 = [_]f32{0} ** MAX_ENTITIES,
+    // Frozen lifetime — > 0 = seconds remaining of FX.FROZEN tint; the
+    // FROZEN bit on fx_flags is cleared in main.zig when this hits 0.
+    freeze_t:[MAX_ENTITIES]f32  = [_]f32{0} ** MAX_ENTITIES,
 
     // Free list
     next_free: EntityId = 0,
@@ -63,6 +66,7 @@ pub const World = struct {
         world.fx_flags[id]= 0;
         world.death_t[id] = 0;
         world.hit_flash[id] = 0;
+        world.freeze_t[id]  = 0;
         world.count      += 1;
         world.next_free   = id + 1;
         return id;
