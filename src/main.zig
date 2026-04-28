@@ -1225,3 +1225,117 @@ export fn game_get_emitters(out_count: *u32) [*]const u8 {
 }
 
 const MAX_DRAW = 4096;
+
+// ── Tests ────────────────────────────────────────────────────────────────────
+// Integration tests for game_init + game_set_zone. These exercise the full
+// despawn / respawn / player-teleport flow with the real Zig globals so any
+// regression where game_set_zone silently fails to rebuild the world will be
+// caught at `zig build test` time instead of only on-device.
+
+fn count_alive_non_player() u32 {
+    const MAX_E = @import("game/entity.zig").MAX_ENTITIES;
+    var n: u32 = 0;
+    for (0..MAX_E) |i| {
+        const id: u16 = @intCast(i);
+        if (world.alive[id] and id != player.entity) n += 1;
+    }
+    return n;
+}
+
+// True if any alive entity has the given mesh_id. Used to check that
+// zone-specific scenery actually shows up after a switch (e.g. lanterns
+// only spawn in the forest).
+fn any_with_mesh(mesh: u16) bool {
+    const MAX_E = @import("game/entity.zig").MAX_ENTITIES;
+    for (0..MAX_E) |i| {
+        const id: u16 = @intCast(i);
+        if (world.alive[id] and world.mesh_id[id] == mesh) return true;
+    }
+    return false;
+}
+
+test "game_init populates the forest" {
+    // Reset globals so re-running the test suite from a fresh process is safe.
+    inited = false;
+    world  = .{};
+    psys   = .{};
+    enemy_ai = .{};
+
+    game_init();
+    try std.testing.expect(inited);
+    try std.testing.expect(world.count > 100);          // ~2400 entities expected
+    try std.testing.expect(any_with_mesh(13));          // portal
+    try std.testing.expect(any_with_mesh(14));          // monolith ring
+    try std.testing.expect(any_with_mesh(9));           // path lanterns
+    try std.testing.expectEqual(@as(f32, 0), world.pos[player.entity].x);
+    try std.testing.expectEqual(@as(f32, 0), world.pos[player.entity].z);
+}
+
+test "game_set_zone(desert) tears down forest and rebuilds desert" {
+    inited = false;
+    world  = .{};
+    psys   = .{};
+    enemy_ai = .{};
+
+    game_init();
+    const forest_count = count_alive_non_player();
+    try std.testing.expect(forest_count > 100);
+
+    game_set_zone(1); // desert
+    try std.testing.expectEqual(Zone.desert, current_zone);
+    // World was wiped and rebuilt — entity count is non-zero and the player
+    // is back at origin with full HP. Forest-specific lanterns should be gone.
+    try std.testing.expect(count_alive_non_player() > 100);
+    try std.testing.expectEqual(@as(f32, 0), world.pos[player.entity].x);
+    try std.testing.expectEqual(@as(f32, 0), world.pos[player.entity].z);
+    try std.testing.expectEqual(world.hp_max[player.entity], world.hp[player.entity]);
+    // Lanterns (mesh 9) only spawn in the forest's path-side row + torch
+    // scatter. Desert spawns no torches, so this should be false.
+    try std.testing.expect(!any_with_mesh(9));
+}
+
+test "game_set_zone(isles) puts player on Lantern Hold" {
+    inited = false;
+    world  = .{};
+    psys   = .{};
+    enemy_ai = .{};
+
+    game_init();
+    game_set_zone(2);
+    try std.testing.expectEqual(Zone.isles, current_zone);
+    try std.testing.expect(count_alive_non_player() > 50);
+    try std.testing.expectEqual(isles_islands[0].cx, world.pos[player.entity].x);
+    try std.testing.expectEqual(isles_islands[0].cz, world.pos[player.entity].z);
+    try std.testing.expectEqual(isles_islands[0].y_deck, world.pos[player.entity].y);
+}
+
+test "game_set_zone round-trips forest -> desert -> isles -> forest" {
+    inited = false;
+    world  = .{};
+    psys   = .{};
+    enemy_ai = .{};
+
+    game_init();
+    try std.testing.expect(any_with_mesh(9));   // forest has lanterns
+
+    game_set_zone(1);
+    try std.testing.expect(!any_with_mesh(9));  // desert clears them
+
+    game_set_zone(2);
+    try std.testing.expect(!any_with_mesh(9));  // isles also clears them
+
+    game_set_zone(0);
+    try std.testing.expect(any_with_mesh(9));   // forest's lanterns are back
+}
+
+test "game_set_zone ignores invalid zone ids" {
+    inited = false;
+    world  = .{};
+    psys   = .{};
+    enemy_ai = .{};
+
+    game_init();
+    const before = current_zone;
+    game_set_zone(99);
+    try std.testing.expectEqual(before, current_zone);
+}

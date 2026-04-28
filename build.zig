@@ -32,15 +32,16 @@ pub fn build(b: *std.Build) void {
     const install_sim = b.addInstallLibFile(sim_lib.getEmittedBin(), "sim/libmach5game.a");
     b.getInstallStep().dependOn(&install_sim.step);
 
-    // Host unit tests (entity logic — no Apple deps)
+    // Host unit tests — root at src/main.zig so all the cross-module imports
+    // (math/vec.zig, game/*.zig, renderer/*.zig) resolve correctly.
     const host_target = b.standardTargetOptions(.{});
     const test_mod = b.createModule(.{
-        .root_source_file = b.path("src/game/entity.zig"),
+        .root_source_file = b.path("src/main.zig"),
         .target = host_target,
         .optimize = optimize,
     });
     const unit_tests = b.addTest(.{
-        .name = "entity_tests",
+        .name = "main_tests",
         .root_module = test_mod,
     });
     const run_tests = b.addRunArtifact(unit_tests);
